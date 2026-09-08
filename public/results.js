@@ -16,11 +16,18 @@ export function revealedCount(total, elapsed) {
   return count;
 }
 
-// 완주 점수는 참가 인원부터 1점까지, 미완주는 0점. 동점은 공동 순위입니다.
+// 참가 인원은 미완주·중도 퇴장자를 포함합니다. 모든 라운드에 같은 배점을 적용합니다.
+export function roundPoints(result, participants) {
+  if (result.status !== 'finished') return 0;
+  const bonusRate = [0.3, 0.15, 0.1][result.rank - 1] || 0;
+  return Math.max(1, participants - result.rank + 1) + Math.round(participants * bonusRate);
+}
+
+// 동점은 공동 순위입니다.
 export function addRoundScores(previous, results) {
   const scores = new Map(previous.map((row) => [row.id, { ...row }]));
   for (const result of results) {
-    const points = result.status === 'finished' ? Math.max(1, results.length - result.rank + 1) : 0;
+    const points = roundPoints(result, results.length);
     const row = scores.get(result.id) || { id: result.id, name: result.name, character: result.character, color: result.color, score: 0, completed: 0, wins: 0 };
     row.character = result.character; row.color = result.color;
     row.score += points;

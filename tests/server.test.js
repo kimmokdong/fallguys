@@ -192,6 +192,7 @@ test('경기 도중 탈퇴 기록, 재접속 유예, 같은 토큰 연결 교체
   Object.assign(second, { x: 0, y: 0, z: active.course.finishZ + 1, vx: 0, vy: 0, vz: 0, grounded: true });
   const final = await replacement.wait(roomWhere((room) => room.phase === 'results'));
   assert.equal(final.room.results.length, 3, '출발한 세 명 모두 결과에 한 번씩 남는다.');
+  assert.deepEqual(final.room.scores.map(row => row.score), [4, 2, 0], '중도 퇴장 후에도 출발 인원 3명을 기준으로 보너스를 계산한다.');
   assert.equal(new Set(final.room.results.map((row) => row.id)).size, 3);
   assert.deepEqual(final.room.results.map((row) => [row.id, row.rank, row.status]), [
     [welcome.id, 1, 'finished'], [returning.id, 2, 'finished'], [leaver.id, null, 'dnf'],
@@ -262,8 +263,8 @@ test('3판 누적 점수전: 라운드 전환 권한, 맵 중복 방지, 점수 
     active.endsAt = Date.now() - 1;
     const result = await host.wait(roomWhere((r) => r.phase === 'results' && r.round === round));
     assert.ok(Number.isFinite(result.room.resultsAt));
-    assert.equal(result.room.scores.find((r) => r.id === welcome.id).score, 2);
-    assert.equal(result.room.scores.find((r) => r.id === joined.id).score, (round - 1) * 2);
+    assert.equal(result.room.scores.find((r) => r.id === welcome.id).score, 3);
+    assert.equal(result.room.scores.find((r) => r.id === joined.id).score, (round - 1) * 3);
     guest.send({ type: 'next' }); assert.match((await guest.wait(ofType('error'))).message, /방장/);
     if (round < 3) host.send({ type: 'next' });
   }

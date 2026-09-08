@@ -1,7 +1,7 @@
 import { MAPS, createCourse } from './world.js';
 import { CHARACTERS, COLORS } from './catalog.js';
 import { GameScene } from './scene.js';
-import { resultOrder, revealedCount } from './results.js';
+import { resultOrder, revealedCount, roundPoints } from './results.js';
 import { GameAudio } from './audio.js';
 
 const $ = (selector) => document.querySelector(selector);
@@ -424,7 +424,7 @@ function renderResults() {
       const place = r.status === 'finished' ? `${r.rank}위` : '미완주';
       const tied = r.overall && orderedResults.filter((row) => row.rank === r.rank).length > 1;
       const score = room.scores?.find((row) => row.id === r.id)?.score || 0;
-      const points = r.status === 'finished' ? room.results.length - r.rank + 1 : 0;
+      const points = roundPoints(r, room.results.length);
       const caption = r.overall ? `${r.score}점 · ${r.completed}회 완주` : room.settings.matchMode === 'series' ? `+${points}점 · 누적 ${score}점` : r.status === 'finished' ? `${Number(r.time).toFixed(2)}초` : '다음엔 꼭 완주!';
       return `<article class="result-tile ${r.id === myId ? 'me' : ''} ${r.rank === 1 ? 'winner' : r.rank === 2 ? 'silver' : r.rank === 3 ? 'bronze' : ''}" role="listitem" aria-label="결과 공개 대기" data-index="${i}" style="--jelly-color:${color.hex};order:${orderedResults.length - i}"><div class="result-front" aria-hidden="true"><span class="tile-rank">${tied ? '공동 ' : ''}${place}</span>${r.id === myId ? '<span class="tile-me">나</span>' : ''}<div class="result-photo">${portrait ? `<img src="${portrait}" alt="${escapeHTML(character.name)} · ${escapeHTML(color.name)}" width="256" height="256">` : `<span class="portrait-fallback">${character.emoji}</span>`}</div><div class="tile-caption"><strong>${escapeHTML(r.name)}</strong><small>${caption}</small></div></div><div class="result-back" aria-hidden="true"><span>?</span><small>${tied ? '공동 ' : ''}${place}</small></div></article>`;
     }).join('');
