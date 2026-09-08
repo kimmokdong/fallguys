@@ -123,6 +123,7 @@ function onMessage(message) {
     clearTimeout(requestTimer);
     $('#entry-submit').disabled = false;
     $('#entry-dialog').close();
+    if ($('#character-dialog').open) send({ type: 'choosing', choosing: true });
     if (entryMode === 'create' && selectedMap !== 'random') { send({ type: 'settings', mapId: selectedMap }); selectedMap = 'random'; }
     entryMode = 'join';
   } else if (message.type === 'room') {
@@ -145,18 +146,19 @@ function onMessage(message) {
       showEntry('join', new URLSearchParams(location.search).get('room') || '');
     }
   } else if (message.type === 'left') { goHome(); }
+  else if (message.type === 'kicked') { goHome(); toast(message.message); }
 }
 
 function showEntry(mode, code = '') {
   if (room) return;
   entryMode = mode;
-  $('#entry-title').textContent = mode === 'create' ? '우리만의 방 만들기' : '친구들이 기다리고 있어요!';
-  $('#entry-description').textContent = mode === 'create' ? '친구들이 알아볼 수 있는 이름을 알려주세요.' : '이름을 입력하면 바로 대기실에 입장해요.';
+  $('#entry-title').textContent = mode === 'create' ? '새로운 캠프를 열어요.' : '반가워요! 이름을 알려줘요.';
+  $('#entry-description').textContent = mode === 'create' ? '어떤 이름으로 함께할까요?' : code ? `초대받은 캠프 · ${code}` : '초대 코드와 이름을 입력해요.';
   $('#code-field').hidden = mode === 'create' || Boolean(code);
   $('#entry-code').required = mode === 'join';
   $('#entry-code').value = code;
   $('#entry-name').value = profile.name;
-  $('#entry-submit').textContent = mode === 'create' ? '방 만들고 친구 초대하기 →' : '대기실 입장하기 →';
+  $('#entry-submit').textContent = mode === 'create' ? '방 만들기 →' : '입장하기 →';
   $('#entry-submit').disabled = false;
   updateProfile();
   if (!$('#entry-dialog').open) $('#entry-dialog').showModal();
@@ -177,17 +179,17 @@ $('#entry-form').addEventListener('submit', async (event) => {
   } catch (error) { toast(error.message); $('#entry-submit').disabled = false; }
 });
 $('#entry-name').addEventListener('input', () => $('#entry-name').setCustomValidity(''));
-['#create-button', '#bottom-create'].forEach((id) => $(id).addEventListener('click', () => showEntry('create')));
+$('#create-button').addEventListener('click', () => showEntry('create'));
 $('#join-button').addEventListener('click', () => showEntry('join'));
 document.querySelectorAll('[data-close]').forEach((button) => button.addEventListener('click', () => button.closest('dialog').close()));
 document.querySelectorAll('dialog').forEach((dialog) => dialog.addEventListener('click', (event) => { if (event.target === dialog) { const rect = dialog.getBoundingClientRect(); if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) dialog.close(); } }));
 $('#guide-button').addEventListener('click', () => $('#guide-dialog').showModal());
 $('#nav-home').addEventListener('click', (event) => { event.preventDefault(); window.scrollTo({ top: 0, behavior: 'smooth' }); });
-$('#nav-maps').addEventListener('click', (event) => { if (room) { event.preventDefault(); toast('맵은 대기실의 레이스 설정에서 선택할 수 있어요.'); } });
+$('#nav-maps').addEventListener('click', () => { if (room) $('#settings-dialog').showModal(); else $('#maps-dialog').showModal(); });
 
 function updateProfile() {
   const c = CHARACTERS.find((item) => item.id === profile.character);
-  $('#entry-avatar').textContent = c.emoji;
+  $('#entry-avatar').innerHTML = scene ? `<img src="${scene.portrait(c.id, profile.color)}" alt="${escapeHTML(c.name)}">` : c.emoji;
   $('#entry-avatar').style.background = `${COLORS.find((color) => color.id === profile.color).hex}35`;
   $('#entry-character-name').textContent = c.name;
   scene?.setCharacter(profile.character, profile.color);
@@ -195,13 +197,19 @@ function updateProfile() {
 }
 
 function renderCharacters() {
+  const scroll = $('#character-grid').scrollTop;
+  const active = document.activeElement;
+  const focus = active?.dataset.color ? `[data-color="${active.dataset.color}"]` : active?.dataset.character ? `[data-character="${active.dataset.character}"]` : null;
   previewCharacter();
   const random = room?.settings.characterMode === 'random';
-  $('#character-help').textContent = random ? '방장이 랜덤으로 캐릭터를 배정했어요. 원하는 색상을 골라주세요.' : '30개의 개성, 8가지 컬러. 나만의 조합을 찾아보세요.';
+  $('#character-help').textContent = random ? '랜덤 캐릭터 · 색상은 자유롭게' : `${CHARACTERS.length}종 · ${COLORS.length}색`;
   $('#color-picker').innerHTML = COLORS.map((c) => `<button class="color-swatch ${profile.color === c.id ? 'selected' : ''}" style="background:${c.hex}" data-color="${c.id}" aria-label="${c.name}" aria-pressed="${profile.color === c.id}" title="${c.name}"></button>`).join('');
   $('#character-grid').innerHTML = CHARACTERS.map((c) => `<button class="character-option ${profile.character === c.id ? 'selected' : ''}" data-character="${c.id}" aria-label="${c.name} 캐릭터" aria-pressed="${profile.character === c.id}" ${random ? 'disabled' : ''}><img class="char-model" src="${scene?.portrait(c.id, profile.color) || ''}" alt="" width="96" height="96"><span>${c.name}</span></button>`).join('');
+  $('#character-grid').scrollTop = scroll;
+  if (focus) $(focus)?.focus({ preventScroll:true });
 }
-function openCharacters() { renderCharacters(); $('#character-dialog').showModal(); }
+function openCharacters() { renderCharacters(); $('#character-dialog').showModal(); if (room?.phase === 'lobby') send({ type: 'choosing', choosing: true }); }
+$('#character-dialog').addEventListener('close', () => { if (room?.phase === 'lobby') send({ type: 'choosing', choosing: false }); });
 function previewCharacter() {
   const character = CHARACTERS.find(c => c.id === profile.character);
   $('#character-preview-image').src = scene?.portrait(profile.character, profile.color) || '';
@@ -213,6 +221,10 @@ $('#character-grid').addEventListener('click', (event) => { const button = event
 $('#character-done').addEventListener('click', () => $('#character-dialog').close());
 
 function switchScreen(mode) {
+  document.body.dataset.screen = mode;
+  $('#nav-home').hidden = mode !== 'home';
+  $('#nav-maps').textContent = mode === 'room' ? '경기 정보' : '맵 보기';
+  if (mode === 'game') document.querySelectorAll('dialog[open]').forEach(dialog => dialog.close());
   if (mode !== 'game') { clearInterval(resultsTimer); resultsKey = ''; watchId = null; soundState = null; $('#course-intro').hidden = true; $('#spectator-panel').hidden = true; $('#game-screen').classList.remove('spectating'); }
   $('#home-screen').hidden = mode !== 'home';
   $('#room-screen').hidden = mode !== 'room';
@@ -223,6 +235,24 @@ function switchScreen(mode) {
   const container = $(mode === 'home' ? '#hero-visual' : mode === 'room' ? '#lobby-visual' : '#game-canvas-slot');
   if (canvas.parentElement !== container) container.appendChild(canvas);
 }
+
+function playerStatus(player) {
+  if (!player?.connected) return { kind: 'offline', text: '연결 끊김' };
+  if (player.choosing) return { kind: 'choosing', text: '캐릭터 고르는 중' };
+  return player.ready || player.id === room?.hostId ? { kind: 'ready', text: '준비 완료' } : { kind: 'waiting', text: '대기 중' };
+}
+let managedPlayerId = null;
+$('#open-settings').addEventListener('click', () => $('#settings-dialog').showModal());
+$('#player-grid').addEventListener('click', event => {
+  if (event.target.closest('#empty-invite')) { $('#copy-invite').click(); return; }
+  const button = event.target.closest('[data-player]');
+  if (!button || room?.hostId !== myId) return;
+  const player = room.players.find(p => p.id === button.dataset.player);
+  if (!player) return;
+  managedPlayerId = player.id; $('#manage-name').textContent = player.name + ' · ' + playerStatus(player).text;
+  $('#manage-dialog').showModal();
+});
+$('#kick-player').addEventListener('click', () => { if (send({ type:'kick', playerId:managedPlayerId })) $('#manage-dialog').close(); });
 
 function renderRoom(previous) {
   const host = room.hostId === myId;
@@ -236,35 +266,40 @@ function renderRoom(previous) {
     if (sceneMode !== 'preview' || !previous) { scene?.setMode('preview'); scene?.setCharacter(profile.character, profile.color); sceneMode = 'preview'; }
     latestState = null;
     $('#room-code').textContent = room.code;
-    $('#room-count').textContent = `${room.players.length} / 30`;
-    $('#player-count').textContent = `${room.players.length}명`;
-    $('#host-badge').textContent = host ? '내가 방장' : '방장만 변경 가능';
-    $('#room-description').textContent = host ? '맵을 고르고 친구들을 초대한 뒤 시작 버튼을 눌러주세요.' : '친구들과 젤리를 꾸미며 방장이 시작하기를 기다려요.';
+    $('#room-count').textContent = room.players.length + ' / 30';
+    $('#room-description').textContent = host ? '내가 연 캠프' : (room.players.find(p => p.id === room.hostId)?.name || '친구') + '의 캠프';
+    $('#self-role').textContent = host ? '나 · 방장' : '나';
+    $('#self-name').textContent = me?.name || profile.name;
+    if (!$('#self-portrait')) $('#lobby-visual').insertAdjacentHTML('beforeend', '<img id="self-portrait" alt="내 캐릭터">');
+    $('#self-portrait').src = scene?.portrait(profile.character, profile.color) || '';
+    const state = playerStatus(me);
+    $('#self-status').textContent = state.text; $('#self-status').className = 'camp-status ' + state.kind;
+    $('#host-badge').textContent = host ? '경기 설정 ⚙' : '경기 정보';
     $('#map-select').value = room.settings.mapId;
     $('#character-mode').value = room.settings.characterMode;
     $('#duration-select').value = room.settings.duration;
     $('#match-mode').value = room.settings.matchMode || 'single';
     $('#rounds-select').value = room.settings.rounds || 3;
     $('#rounds-settings').hidden = room.settings.matchMode !== 'series';
-    document.querySelectorAll('#settings-form select').forEach((s) => { s.disabled = !host; });
-    const map = MAPS.find((m) => m.id === room.settings.mapId);
-    $('#selected-map-preview').textContent = map ? `${map.emoji} ${map.description}` : room.settings.matchMode === 'series' ? '⤨ 라운드마다 겹치지 않는 새로운 맵을 골라요.' : '⤨ 시작할 때 12개 코스 중 하나를 무작위로 골라요.';
-    const ready = room.players.filter(p => p.connected && (p.ready || p.id === room.hostId)).length;
-    $('#ready-count').textContent = '준비 완료 ' + ready + ' / ' + room.players.length;
+    document.querySelectorAll('#settings-form select').forEach(s => { s.disabled = !host; });
+    const map = MAPS.find(m => m.id === room.settings.mapId);
+    $('#selected-map-preview').textContent = map ? map.description : '시작할 때 코스를 골라요.';
+    $('#course-name').textContent = map?.name || '랜덤 맵';
+    $('#course-meta').textContent = (room.settings.matchMode === 'series' ? room.settings.rounds + '판 점수전' : '한 판 승부') + ' · ' + room.settings.duration / 60 + '분';
+    const ready = room.players.filter(p => p.connected && !p.choosing && (p.ready || p.id === room.hostId)).length;
+    $('#ready-count').textContent = ready + '명 준비';
     $('#ready-toggle').hidden = host;
-    $('#ready-toggle').textContent = me?.ready ? '준비 취소' : '준비 완료 ✓';
+    $('#ready-toggle').disabled = Boolean(me?.choosing);
+    $('#ready-toggle').textContent = me?.ready ? '준비 완료 · 취소' : '준비 완료 ✓';
     $('#ready-toggle').setAttribute('aria-pressed', String(!!me?.ready));
-    $('#ready-help').textContent = host ? '모든 참가자가 준비하면 시작할 수 있어요. 혼자라면 바로 시작!' : me?.ready ? '준비됐어요! 방장이 시작하기를 기다려요.' : '캐릭터를 고른 뒤 준비 완료를 눌러주세요. 설정이 바뀌면 다시 확인해요.';
+    $('#ready-help').textContent = host ? ready === room.players.length ? '모두 준비됐어요. 출발할까요?' : (room.players.length - ready) + '명 준비 전' : me?.ready ? '방장의 시작을 기다려요.' : '준비를 눌러주세요.';
+    $('#start-game').hidden = !host;
     $('#start-game').disabled = !host || !scene || ready !== room.players.length;
-    $('#start-game').innerHTML = host ? '레이스 시작하기 <span>→</span>' : '방장이 시작하기를 기다리는 중…';
-    $('#start-help').textContent = host ? ready === room.players.length ? '모두 준비됐어요! 출발해 볼까요?' : '준비 중인 친구 ' + (room.players.length - ready) + '명' : `${room.players.find((p) => p.id === room.hostId)?.name || '방장'} 님이 시작할 수 있어요.`;
-    $('#player-grid').innerHTML = room.players.map((p) => {
-      const c = CHARACTERS.find((c) => c.id === p.character) || CHARACTERS[0];
-      const color = COLORS.find((c) => c.id === p.color) || COLORS[0];
-      return `<div class="player-card ${p.id === myId ? 'me' : ''}"><span class="player-avatar" style="background:${color.hex}55">${c.emoji}</span><div class="player-detail"><strong>${escapeHTML(p.name)}${p.id === myId ? ' <span>(나)</span>' : ''}</strong><small>${p.connected ? p.id === room.hostId ? '♛ 방장 · 준비 완료' : p.ready ? '● 준비 완료' : '○ 캐릭터 고르는 중' : '◌ 다시 연결하는 중'}</small></div></div>`;
-    }).join('') + (room.players.length < 30 ? '<div class="player-card empty-player">＋ 친구를 초대해요</div>' : '');
-    if (['localhost', '127.0.0.1'].includes(location.hostname)) $('#invite-help').textContent = '현재 이 PC의 로컬 주소예요. 같은 Wi-Fi에서는 PC의 IP 주소로 접속해 초대해주세요. 인터넷 초대는 공개 서버 주소가 필요해요.';
-    else $('#invite-help').textContent = '이 주소에 접속할 수 있는 친구에게 링크를 보내주세요. 이름만 입력하면 입장해요.';
+    $('#player-grid').innerHTML = room.players.filter(p => p.id !== myId).map(p => {
+      const c = CHARACTERS.find(c => c.id === p.character) || CHARACTERS[0];
+      const status = playerStatus(p);
+      return '<article class="player-card ' + (!p.connected ? 'disconnected' : '') + '"><img class="player-portrait" src="' + (scene?.portrait(p.character,p.color) || '') + '" alt="' + escapeHTML(c.name) + '"><strong class="player-name" title="' + escapeHTML(p.name) + '">' + escapeHTML(p.name) + (p.id === room.hostId ? '<small>방장</small>' : '') + '</strong><span class="camp-status ' + status.kind + '">' + status.text + '</span>' + (host ? '<button class="manage-player" data-player="' + p.id + '" aria-label="' + escapeHTML(p.name) + ' 참가자 관리">⋮</button>' : '') + '</article>';
+    }).join('') + (room.players.length < 30 ? '<button class="player-card empty-player" id="empty-invite">＋ 친구 초대</button>' : '');
     $('#results-overlay').hidden = true;
   } else {
     switchScreen('game');
@@ -303,6 +338,7 @@ $('#copy-invite').addEventListener('click', async () => {
 
 function goHome() {
   room = null; myId = null; latestState = null; savedSession = null;
+  document.querySelectorAll('dialog[open]').forEach(dialog => dialog.close());
   saveStorage(sessionStorage, 'jelly-session', null); history.replaceState(null, '', '/');
   sceneMode = 'preview'; sceneMap = ''; resetInput();
   switchScreen('home'); scene?.setMode('preview'); scene?.setCharacter(profile.character, profile.color); renderMaps();
@@ -375,8 +411,11 @@ function renderResults() {
     revealStart = performance.now() - Math.max(0, Date.now() - (room.resultsAt || Date.now()));
     $('#result-title').textContent = overall ? `${room.settings.rounds}판의 승부, 최종 결과는?` : room.settings.matchMode === 'series' ? `${room.round} / ${room.settings.rounds} 라운드 결과` : '우리의 레이스, 그 결과는?';
     $('#result-subtitle').textContent = overall ? '누적 점수가 낮은 순위부터… 최종 우승자를 만나요!' : '미완주부터 차례차례… 마지막에 우승자를 만나요!';
-    $('#results-list').style.setProperty('--columns', Math.min(6, orderedResults.length));
-    $('#results-list').style.setProperty('--rows', Math.max(1, Math.ceil(orderedResults.length / 6)));
+    $('#results-list').style.setProperty('--columns', Math.min(orderedResults.length <= 12 ? 4 : 6, orderedResults.length));
+    $('#results-list').style.setProperty('--rows', Math.max(1, Math.ceil(orderedResults.length / (orderedResults.length <= 12 ? 4 : 6))));
+    $('#results-overlay').classList.toggle('crowded', orderedResults.length > 12);
+    $('#spotlight-person').innerHTML = '<strong>누가 먼저 나올까?</strong>';
+    $('#result-spotlight').classList.remove('winner');
     $('#results-list').innerHTML = orderedResults.map((r, i) => {
       const color = COLORS.find((c) => c.id === r.color) || COLORS[0];
       const character = CHARACTERS.find((c) => c.id === r.character) || CHARACTERS[0];
@@ -387,7 +426,7 @@ function renderResults() {
       const score = room.scores?.find((row) => row.id === r.id)?.score || 0;
       const points = r.status === 'finished' ? room.results.length - r.rank + 1 : 0;
       const caption = r.overall ? `${r.score}점 · ${r.completed}회 완주` : room.settings.matchMode === 'series' ? `+${points}점 · 누적 ${score}점` : r.status === 'finished' ? `${Number(r.time).toFixed(2)}초` : '다음엔 꼭 완주!';
-      return `<article class="result-tile ${r.id === myId ? 'me' : ''} ${r.rank === 1 ? 'winner' : r.rank === 2 ? 'silver' : r.rank === 3 ? 'bronze' : ''}" role="listitem" aria-label="결과 공개 대기" data-index="${i}" style="--jelly-color:${color.hex}"><div class="result-front" aria-hidden="true"><span class="tile-rank">${tied ? '공동 ' : ''}${place}</span>${r.id === myId ? '<span class="tile-me">나</span>' : ''}<div class="result-photo">${portrait ? `<img src="${portrait}" alt="${escapeHTML(character.name)} · ${escapeHTML(color.name)}" width="256" height="256">` : `<span class="portrait-fallback">${character.emoji}</span>`}</div><div class="tile-caption"><strong>${escapeHTML(r.name)}</strong><small>${caption}</small></div></div><div class="result-back" aria-hidden="true"><span>?</span><small>WHO’S NEXT?</small></div></article>`;
+      return `<article class="result-tile ${r.id === myId ? 'me' : ''} ${r.rank === 1 ? 'winner' : r.rank === 2 ? 'silver' : r.rank === 3 ? 'bronze' : ''}" role="listitem" aria-label="결과 공개 대기" data-index="${i}" style="--jelly-color:${color.hex};order:${orderedResults.length - i}"><div class="result-front" aria-hidden="true"><span class="tile-rank">${tied ? '공동 ' : ''}${place}</span>${r.id === myId ? '<span class="tile-me">나</span>' : ''}<div class="result-photo">${portrait ? `<img src="${portrait}" alt="${escapeHTML(character.name)} · ${escapeHTML(color.name)}" width="256" height="256">` : `<span class="portrait-fallback">${character.emoji}</span>`}</div><div class="tile-caption"><strong>${escapeHTML(r.name)}</strong><small>${caption}</small></div></div><div class="result-back" aria-hidden="true"><span>?</span><small>${tied ? '공동 ' : ''}${place}</small></div></article>`;
     }).join('');
     $('#results-list').scrollTop = 0;
     resultsTimer = setInterval(updateResultReveal, 80);
@@ -411,7 +450,9 @@ function updateResultReveal() {
   if (advanced) {
     const last = orderedResults[count - 1];
     $('#result-subtitle').textContent = `${last.status === 'finished' ? `${last.rank}위` : '미완주'} · ${last.name}${last.id === myId ? ' (나)' : ''}`;
-    if (!skipReveal && count < total) tiles[count - 1].scrollIntoView({ block: 'nearest', behavior: reducedMotion ? 'instant' : 'smooth' });
+    const currentTile = tiles[count - 1];
+    $('#result-spotlight').classList.toggle('winner', last.rank === 1 && last.status === 'finished' && (!last.overall || last.score > 0));
+    $('#spotlight-person').innerHTML = '<b class="spot-place">' + escapeHTML(currentTile.querySelector('.tile-rank').textContent) + '</b>' + currentTile.querySelector('.result-photo').innerHTML + '<strong>' + escapeHTML(last.name) + '</strong><p>' + escapeHTML(currentTile.querySelector('.tile-caption small').textContent) + '</p>';
     shownResults = count;
   }
   const done = count === total;
@@ -428,7 +469,7 @@ function updateResultReveal() {
     const winner = winners[0];
     $('#result-title').textContent = winners.length > 1 ? `공동 우승! ${winner.name} 님 외 ${winners.length - 1}명` : winner ? `${winner.name} 님, ${winner.overall ? '최종 ' : nextRound ? `${room.round}라운드 ` : ''}우승!` : '다시 도전할 젤리, 모두 모여!';
     $('#result-subtitle').textContent = winner ? '넘어져도 다시 달린 모든 젤리에게 박수!' : '오늘의 도전도 멋졌어요. 다음엔 결승선까지!';
-    if (winner && !skipReveal && advanced) tiles[total - 1]?.scrollIntoView({ block: 'nearest', behavior: reducedMotion ? 'instant' : 'smooth' });
+
   }
 }
 $('#skip-results').addEventListener('click', () => { skipReveal = true; updateResultReveal(); });

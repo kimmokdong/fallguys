@@ -95,6 +95,12 @@ test('30명 방, 권한, 옵션, 재접속, 서버 경기 종료와 방장 이�
   const recolored = await guest.wait(roomWhere((room) => room.players.find((p) => p.id === guest.id)?.color === COLORS[1].id));
   assert.equal(recolored.room.players.find((p) => p.id === guest.id).character, assigned);
 
+  for (const color of COLORS.slice(8)) {
+    guest.send({ type: 'customize', color: color.id });
+    const updated = await host.wait(roomWhere(room => room.players.find(p => p.id === guest.id)?.color === color.id));
+    assert.equal(updated.room.players.find(p => p.id === guest.id).character, assigned, '추가 색상도 다른 참가자에게 전달되며 배정된 캐릭터는 유지한다.');
+  }
+
   await prepareRoom(guests, host, app.rooms.get(welcome.code).players.size);
   host.send({ type: 'start' });
   const countdown = await host.wait(roomWhere((room) => room.phase === 'countdown'));
@@ -333,6 +339,41 @@ test('준비 확인은 서버에서 강제하며 옵션·캐릭터 변경과 재
   host.messages.length = 0;
   host.send({ type: 'lobby' });
   await host.wait(roomWhere(r => r.phase === 'lobby' && r.round === 0 && r.players.every(p => !p.ready)));
+});
+
+test('캐릭터 선택 상태와 준비 구분, 방장 강퇴 권한, 끊긴 참가자 정리', async (t) => {
+  const app = await setup(t);
+  const host = await client(app.url); host.send({ type: 'create', name: '방장' });
+  const opened = await host.wait(ofType('welcome'));
+  const guest = await client(app.url); guest.send({ type: 'join', code: opened.code, name: '친구' });
+  const joined = await guest.wait(ofType('welcome'));
+  guest.send({ type: 'ready', ready: true });
+  await host.wait(roomWhere(r => r.players.some(p => p.id === joined.id && p.ready)));
+  guest.send({ type: 'choosing', choosing: true });
+  await host.wait(roomWhere(r => r.players.some(p => p.id === joined.id && p.choosing && !p.ready)));
+  guest.send({ type: 'ready', ready: true });
+  assert.match((await guest.wait(ofType('error'))).message, /선택/);
+  host.send({ type: 'start' }); assert.match((await host.wait(ofType('error'))).message, /준비/);
+  guest.send({ type: 'choosing', choosing: false });
+  await host.wait(roomWhere(r => r.players.some(p => p.id === joined.id && p.choosing === false && !p.ready)));
+  guest.send({ type: 'kick', playerId: opened.id }); assert.match((await guest.wait(ofType('error'))).message, /방장/);
+  host.send({ type: 'kick', playerId: opened.id }); assert.match((await host.wait(ofType('error'))).message, /참가자/);
+  host.send({ type: 'kick', playerId: joined.id }); await guest.wait(ofType('kicked'));
+  await host.wait(roomWhere(r => r.players.length === 1));
+  guest.send({ type: 'join', code: opened.code, token: joined.token });
+  assert.equal((await guest.wait(ofType('error'))).code, 'SESSION_EXPIRED');
+  guest.send({ type: 'join', code: opened.code, name: '방장' });
+  const duplicate = await guest.wait(ofType('welcome'));
+  guest.socket.terminate();
+  await host.wait(roomWhere(r => r.players.some(p => p.id === duplicate.id && !p.connected)));
+  host.send({ type: 'kick', playerId: duplicate.id });
+  await host.wait(roomWhere(r => r.players.length === 1));
+  host.send({ type: 'choosing', choosing: true });
+  await host.wait(roomWhere(r => r.players[0].choosing));
+  host.send({ type: 'start' }); assert.match((await host.wait(ofType('error'))).message, /준비/);
+  host.send({ type: 'choosing', choosing: false }); host.send({ type: 'start' });
+  await host.wait(roomWhere(r => r.phase === 'playing'));
+  host.send({ type: 'kick', playerId: 'missing' }); assert.match((await host.wait(ofType('error'))).message, /대기실/);
 });
 
 test('한 틱 안에서 눌렀다 뗀 점프도 한 번 실행하고 계속 누르기는 반복하지 않는다', async (t) => {

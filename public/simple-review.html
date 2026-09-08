@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#315b40">
+  <title>캠프 젤리 · 심플 웹 시안</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/simple-review.css">
+  <script type="importmap">{"imports":{"three":"/vendor/three/three.module.js"}}</script>
+</head>
+<body>
+  <div class="review-bar"><span class="review-label">화면 시안 <b>03</b></span>
+    <nav class="step-nav" aria-label="시안 화면 선택"><button data-step="home" aria-current="step">홈</button><button data-step="name">이름 입력</button><button data-step="lobby">참가자 대기실</button><button data-step="closet">캐릭터 선택</button><button data-step="host">방장 대기실</button></nav>
+    <div class="demo-tools" hidden><button data-count="6" aria-pressed="true">6명</button><button data-count="30" aria-pressed="false">30명</button><button id="demo-ready">모두 준비</button></div>
+  </div>
+  <div id="app" class="app" aria-label="캠프 젤리 시안"></div>
+  <div id="sheet-root"></div><div id="toast" class="toast" role="status" hidden></div>
+  <footer class="review-foot"><span>검토용 화면 · 예시 참가자</span><a href="/result-review.html">결과 화면 시안 3종 →</a><a href="https://camp-jelly.onrender.com/" target="_blank" rel="noopener">현재 게임 ↗</a></footer>
+  <canvas id="portrait-canvas" width="256" height="256" aria-hidden="true"></canvas>
+  <script type="module" src="/simple-review.js"></script>
+</body>
+</html>

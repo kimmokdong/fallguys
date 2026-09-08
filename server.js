@@ -63,7 +63,7 @@ export function createGameServer({ reconnectGraceMs = 20_000, countdownMs = 6_00
     return {
       id: player.id, name: player.name, character: player.character, color: player.color,
       connected: Boolean(player.socket), finished: player.racer?.finished || false,
-      fallCount: player.racer?.fallCount || 0, ready: Boolean(player.ready),
+      fallCount: player.racer?.fallCount || 0, ready: Boolean(player.ready), choosing: Boolean(player.choosing),
     };
   }
   function roomSnapshot(room) {
@@ -99,6 +99,7 @@ export function createGameServer({ reconnectGraceMs = 20_000, countdownMs = 6_00
   function attach(socket, room, player) {
     clearTimeout(player.disconnectTimer);
     player.socket = socket;
+    player.choosing = false;
     player.input = { ...EMPTY_INPUT };
     player.pendingJump = false; player.pendingDive = false;
     player.lastInput = Date.now();
@@ -224,6 +225,21 @@ export function createGameServer({ reconnectGraceMs = 20_000, countdownMs = 6_00
         return;
       }
       if (message.type === 'leave') { removePlayer(room, player); send(socket, { type: 'left' }); return; }
+      if (message.type === 'kick') {
+        if (room.hostId !== player.id) { error(socket, '방장만 참가자를 내보낼 수 있습니다.'); return; }
+        if (room.phase !== 'lobby') { error(socket, '참가자 관리는 대기실에서만 가능합니다.'); return; }
+        const target = room.players.get(message.playerId);
+        if (!target || target.id === player.id) { error(socket, '내보낼 참가자를 다시 확인해 주세요.'); return; }
+        send(target.socket, { type: 'kicked', message: '방장이 이 방에서 내보냈습니다.' });
+        removePlayer(room, target);
+        return;
+      }
+      if (message.type === 'choosing') {
+        if (room.phase !== 'lobby' || typeof message.choosing !== 'boolean') { error(socket, '대기실에서만 캐릭터를 고를 수 있습니다.'); return; }
+        player.choosing = message.choosing;
+        if (player.choosing) player.ready = false;
+        announce(room); return;
+      }
       if (message.type === 'input') {
         if (room.phase !== 'playing') return;
         if (message.jump === true && !player.input.jump) player.pendingJump = true;
@@ -238,6 +254,7 @@ export function createGameServer({ reconnectGraceMs = 20_000, countdownMs = 6_00
       }
       if (message.type === 'ready') {
         if (room.phase !== 'lobby' || typeof message.ready !== 'boolean') { error(socket, '대기실에서 준비 상태를 선택해 주세요.'); return; }
+        if (message.ready && player.choosing) { error(socket, '캐릭터 선택을 마친 뒤 준비해 주세요.'); return; }
         player.ready = message.ready;
         announce(room); return;
       }
@@ -261,7 +278,7 @@ export function createGameServer({ reconnectGraceMs = 20_000, countdownMs = 6_00
       if (message.type === 'lobby') {
         room.phase = 'lobby'; room.mapId = null; room.startsAt = null; room.endsAt = null; room.resultsAt = null; room.results = []; room.course = null;
         room.round = 0; room.scores = []; room.playedMaps = [];
-        for (const p of room.players.values()) { p.racer = null; p.input = { ...EMPTY_INPUT }; p.ready = false; }
+        for (const p of room.players.values()) { p.racer = null; p.input = { ...EMPTY_INPUT }; p.ready = false; p.choosing = false; }
         announce(room);
         return;
       }
@@ -285,7 +302,7 @@ export function createGameServer({ reconnectGraceMs = 20_000, countdownMs = 6_00
         announce(room);
         return;
       }
-      const waiting = [...room.players.values()].filter(p => !p.socket || (p.id !== room.hostId && !p.ready));
+      const waiting = [...room.players.values()].filter(p => !p.socket || p.choosing || (p.id !== room.hostId && !p.ready));
       if (waiting.length) { error(socket, `아직 ${waiting.length}명이 준비 중입니다. 모두 준비하면 시작할 수 있어요.`); return; }
       room.round = 1; room.scores = []; room.playedMaps = [];
       startRound(room, now);
@@ -295,6 +312,7 @@ export function createGameServer({ reconnectGraceMs = 20_000, countdownMs = 6_00
       if (!room || !player || player.socket !== socket) return;
       player.socket = null;
       player.ready = false;
+      player.choosing = false;
       player.input = { ...EMPTY_INPUT };
       announce(room);
       player.disconnectTimer = setTimeout(() => removePlayer(room, player), reconnectGraceMs);

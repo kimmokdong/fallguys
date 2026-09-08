@@ -165,7 +165,7 @@ dialog::backdrop{background:#283f3155;backdrop-filter:blur(7px)}
 .entry-character small{display:block;font-size:9px;color:#5e6e56;margin-top:4px}
 .text-button{font-size:10px;color:var(--forest);border:0;background:transparent;margin-left:auto}
 .character-dialog{max-width:min(650px,calc(100% - 28px))}
-.color-picker{display:flex;align-items:center;gap:12px;margin:20px 0}
+.color-picker{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin:20px 0}.color-swatch{flex:none}
 .color-swatch{width:30px;height:30px;border-radius:50%;border:3px solid #eee5cf;box-shadow:0 0 0 1px #d0d2b9;position:relative}
 .color-swatch.selected{box-shadow:0 0 0 2px var(--forest)}
 .color-swatch.selected:after{content:'✓';color:#283f31aa;font-size:13px;font-weight:700;position:absolute;inset:0;display:grid;place-items:center}

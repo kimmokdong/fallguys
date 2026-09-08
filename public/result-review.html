@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#315b40"><title>캠프 젤리 · 결과 화면 시안</title>
+  <link rel="icon" href="data:,"><link rel="stylesheet" href="/result-review.css">
+  <script type="importmap">{"imports":{"three":"/vendor/three/three.module.js"}}</script>
+</head>
+<body>
+  <header class="review-tools"><a href="/simple-review.html?screen=lobby">← 대기실 시안</a><span>결과 화면 시안</span><div class="counts" aria-label="예시 참가 인원"><button data-count="12" aria-pressed="true">12명</button><button data-count="26" aria-pressed="false">26명</button><button data-count="30" aria-pressed="false">30명</button></div></header>
+  <main class="review">
+    <nav class="concepts" aria-label="결과 화면 디자인"><button data-design="podium" aria-pressed="true"><b>A · 숲속 시상대</b><span>중앙의 우승자와 단체 사진</span></button><button data-design="trail" aria-pressed="false"><b>B · 정상으로 가는 길</b><span>아래에서 위로, 순위가 곧 높이</span></button><button data-design="spotlight" aria-pressed="false"><b>C · 오늘의 주인공</b><span>한 명씩 크게, 마지막은 우승자</span></button></nav>
+    <section class="result-stage" data-design="podium" aria-label="경기 결과 시안">
+      <header class="result-heading"><div><span class="eyebrow">CAMP JELLY · FINISH</span><h1 id="headline">숲속 시상대</h1></div><div class="race-info"><b>통나무 스핀</b><span>한 판 승부 · <span id="player-count">12</span>명</span></div></header>
+      <div id="board" class="board"></div>
+      <footer class="result-footer"><div><strong id="announcement" role="status" aria-live="polite">모두 완주했어요!</strong><span id="my-result">내 결과를 기다리는 중</span></div><button id="lobby">대기실로 돌아가기 →</button></footer>
+    </section>
+    <div class="playback"><p id="concept-note"></p><div><span id="progress">0 / 12</span><button id="replay">꼴찌부터 다시 보기 ↻</button><button id="pause" disabled>일시정지</button><button id="reveal-all">완성 화면</button></div></div>
+  </main>
+  <canvas id="portrait-canvas" width="256" height="256" aria-hidden="true"></canvas>
+  <script type="module" src="/result-review.js"></script>
+</body>
+</html>
