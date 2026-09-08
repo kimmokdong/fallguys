@@ -218,7 +218,11 @@ export function createGameServer({ reconnectGraceMs = 20_000, countdownMs = 6_00
       }
       const room = socket.room;
       const player = socket.player;
-      if (!room || !player) { error(socket, '먼저 방을 만들거나 입장해 주세요.'); return; }
+      if (!room || !player) {
+        // 퇴장 요청 직후 도착한 이동 패킷은 조용히 버린다.
+        if (message.type !== 'input') error(socket, '먼저 방을 만들거나 입장해 주세요.');
+        return;
+      }
       if (message.type === 'leave') { removePlayer(room, player); send(socket, { type: 'left' }); return; }
       if (message.type === 'input') {
         if (room.phase !== 'playing') return;

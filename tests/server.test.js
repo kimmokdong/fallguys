@@ -226,6 +226,12 @@ test('정적 파일 경계, 잘못된 메시지, 초과 크기, 연결 종료 �
   const health = await client(app.url);
   health.send({ type: 'create', name: '정상 사용자' });
   await health.wait(ofType('welcome'));
+  health.send({ type: 'leave' });
+  health.send({ type: 'input', z: 1 });
+  await health.wait(ofType('left'));
+  health.send({ type: 'create', name: '퇴장 뒤 재입장' });
+  await health.wait(ofType('welcome'));
+  assert.equal(health.messages.some(m => m.type === 'error'), false, '퇴장 뒤 도착한 이동 입력은 불필요한 안내를 띄우지 않는다.');
 });
 
 test('3판 누적 점수전: 라운드 전환 권한, 맵 중복 방지, 점수 누적과 초기화', async (t) => {
