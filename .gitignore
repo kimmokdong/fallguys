@@ -1,0 +1,8 @@
+node_modules/
+.env
+.env.*
+prompt_history.md
+test-results/
+*.log
+.playwright-cli/
+output/

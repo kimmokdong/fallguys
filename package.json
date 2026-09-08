@@ -1,0 +1,10 @@
+{
+  "name": "jelly-rush",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "최대 30명이 함께하는 3D 장애물 파티 레이스",
+  "scripts": { "start": "node server.js", "dev": "node --watch server.js", "test": "node --test tests/*.test.js" },
+  "engines": { "node": ">=22" },
+  "dependencies": { "three": "^0.183.2", "ws": "^8.19.0" }
+}

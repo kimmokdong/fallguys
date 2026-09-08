@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#e5e2db">
+  <title>젤리 러시 · 디자인 비교실</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/design-review.css">
+  <script type="importmap">{"imports":{"three":"/vendor/three/three.module.js"}}</script>
+</head>
+<body>
+  <header class="review-header"><a href="/design-review.html" class="review-brand">JR <span>DESIGN ROOM</span></a><span>비주얼 제안 · 01</span><a href="/" target="_blank" rel="noopener">현재 게임 ↗</a></header>
+  <main>
+    <section class="intro"><div><p class="eyebrow">JELLY RUSH / ART DIRECTION</p><h1>다른 무드로, 다시 달리기.</h1></div><p>눈부심은 낮추고, 경계는 또렷하게.<br>세 가지 방향의 사이트와 실제 3D 맵을 비교해 보세요.</p></section>
+    <div class="directions" role="group" aria-label="디자인 방향 선택">
+      <button class="direction" data-theme="sport" aria-pressed="true"><span class="direction-top"><b>A</b><span class="swatches"><i style="background:#de542e"></i><i style="background:#315a69"></i><i style="background:#242b2d"></i></span><span class="recommended">추천</span></span><strong>트랙 클럽</strong><small>스포츠 포스터 · 오렌지 · 잉크</small></button>
+      <button class="direction" data-theme="forest" aria-pressed="false"><span class="direction-top"><b>B</b><span class="swatches"><i style="background:#315e48"></i><i style="background:#b9603e"></i><i style="background:#bba474"></i></span></span><strong>캠프 젤리</strong><small>나무 장난감 · 숲 · 따뜻한 흙빛</small></button>
+      <button class="direction" data-theme="arcade" aria-pressed="false"><span class="direction-top"><b>C</b><span class="swatches"><i style="background:#c6e657"></i><i style="background:#46b5c6"></i><i style="background:#1d272b"></i></span></span><strong>애프터 아워즈</strong><small>야간 오락실 · 차콜 · 라임</small></button>
+    </div>
+    <section class="workspace" data-theme="sport">
+      <div class="view-bar"><div role="group" aria-label="미리보기 화면"><button data-view="site" aria-pressed="true">01 사이트</button><button data-view="race" aria-pressed="false">02 인게임</button><button data-view="maps" aria-pressed="false">03 맵 갤러리</button><button data-view="results" aria-pressed="false">04 결과 카드</button></div><span class="demo-badge">디자인 데모</span></div>
+      <div id="site-view" class="view">
+        <nav class="mock-nav"><a href="#" class="mock-logo" id="mock-logo">JELLY / RUSH</a><span class="mock-nav-note">친구들과, 결승선까지.</span><button class="outline-button" data-go="race">플레이해 보기 ↗</button></nav>
+        <div class="site-hero"><div class="hero-copy"><span class="hero-kicker" id="hero-kicker">THE EVERYBODY SPORTS CLUB</span><h2 id="hero-title">같이 뛰자.<br><em>제대로 놀자.</em></h2><p id="hero-description">순위는 잠깐, 웃음은 오래.<br>친구 30명과 함께하는 우당탕 운동회.</p><div class="hero-actions"><button class="solid-button" data-go="race">데모 달리기 <span>↗</span></button><button class="plain-button" data-go="maps">코스 구경하기 →</button></div><div class="hero-stats"><span><b>30</b> PLAYERS</span><span><b>12</b> COURSES</span><span><b>∞</b> GOOD TIMES</span></div></div><div class="hero-art" id="site-canvas-slot"><span class="art-stamp" id="art-stamp">NO. 01<br>LET'S GO!</span><span class="art-caption">YOUR CREW. YOUR PLAYGROUND.</span></div></div>
+        <div class="site-ticker"><span>넘어져도 다시 출발</span><b>↗</b><span>링크 하나로 모이는 친구들</span><b>↗</b><span>단판 레이스 & 누적 점수전</span><b>↗</b></div>
+        <div class="site-bottom"><div><small>TODAY'S PLAYLIST</small><h3>오늘의 놀이터</h3></div><div id="site-map-cards" class="mini-maps"></div></div>
+      </div>
+      <div id="race-view" class="view" hidden>
+        <div class="race-toolbar"><label>코스 <select id="race-map"></select></label><label>캐릭터 색 <select id="character-color"><option value="white">우유 하양 · 경계 비교</option><option value="orange">망고 주황</option><option value="navy">밤하늘 남색</option><option value="mint">민트 초록</option></select></label><button class="outline-button" id="reset-race">출발점으로 ↺</button></div>
+        <div class="race-stage" id="race-canvas-slot" tabindex="0" aria-label="3D 데모, W A S D 또는 방향키로 이동하고 스페이스로 점프"><div class="hud-top"><div class="hud-course"><small id="race-brand">TRACK CLUB / PRACTICE</small><strong id="race-map-name">젤리 정원</strong></div><div class="hud-round"><small>연습 데모</small><strong>FREE RUN</strong></div></div><div class="hud-rank"><small>MY PLAYER</small><strong>01<span> / 06</span></strong><span>흰색 캐릭터에 주목!</span></div><div class="hud-bottom"><span id="race-status">W A S D / 방향키 · 이동　SPACE · 점프　SHIFT · 다이빙</span><span>연습용 캐릭터 6명</span></div><div class="touch-pad" aria-label="터치 이동"><button data-key="ArrowUp" aria-label="앞으로">↑</button><button data-key="ArrowLeft" aria-label="왼쪽으로">←</button><button data-key="ArrowDown" aria-label="뒤로">↓</button><button data-key="ArrowRight" aria-label="오른쪽으로">→</button><button data-key="Space">점프</button></div></div>
+        <div class="scene-legend"><span><i class="floor-dot"></i>중간 밝기의 바닥</span><span><i class="hazard-dot"></i>움직이는 위험물</span><span><i class="edge-dot"></i>낙하 경계선</span><span>실제 이동·점프·충돌을 시험할 수 있습니다.</span></div>
+      </div>
+      <div id="maps-view" class="view" hidden><div class="gallery-heading"><div><small>COURSE COLOR STUDY</small><h2>같은 맵, 다른 표정.</h2></div><p>회전봉 · 구름 발판 · 빙판 코스<br>바닥과 낭떠러지, 장애물의 구분을 비교해 보세요.</p></div><div id="map-gallery" class="map-gallery"></div><div class="map-detail"><div id="map-canvas-slot"></div><div class="map-detail-caption"><b id="map-detail-name">빙글빙글 시티</b><span>움직이는 맵 미리보기</span><button class="solid-button" id="try-map">이 맵 달리기 ↗</button></div></div></div>
+      <div id="results-view" class="view" hidden><div class="result-heading"><span class="hero-kicker">THE FINISH CLUB</span><h2>모두의 레이스, 모두의 순간.</h2><p id="reveal-status" aria-live="polite">꼴찌부터 한 명씩 공개합니다.</p></div><div id="result-grid" class="result-grid"></div><div class="result-actions"><button class="solid-button" id="replay-results">다시 공개하기 ↺</button><span>예시 참가자 · 3판 누적 점수전</span></div></div>
+      <canvas id="review-canvas" aria-label="디자인 검토용 실제 게임 3D 장면"></canvas>
+    </section>
+    <section class="design-notes"><div><p class="eyebrow" id="note-number">DIRECTION A / TRACK CLUB</p><h2 id="note-title">놀이공원보다, 우리들의 운동회.</h2><p id="note-description"></p></div><div class="note-rules"><article><span>01</span><div><b>바닥과 경계를 따로</b><p id="note-floor"></p></div></article><article><span>02</span><div><b>백색광 대신 부드러운 조명</b><p>광원 세기와 노출을 낮추고, 흰 캐릭터는 무광의 따뜻한 회백색으로 표현합니다.</p></div></article><article><span>03</span><div><b>색만으로 구분하지 않기</b><p>바닥 테두리·위험물 띠·이름표·그림자를 함께 사용해 물체 경계를 드러냅니다.</p></div></article></div></section>
+    <section class="review-footer"><div><strong>어느 방향으로 달려볼까요?</strong><p>A · B · C 중 하나를 고르거나, “A 사이트 + B 맵”처럼 섞어서 말씀해 주세요.</p></div><button id="copy-choice">현재 시안 의견 복사 ↗</button><span id="copy-status" role="status"></span></section>
+    <footer>디자인 검토 전용 · 기존 방과 게임 설정에는 영향을 주지 않습니다. <span>JELLY RUSH / 2026</span></footer>
+  </main>
+  <script type="module" src="/design-review.js"></script>
+</body>
+</html>
