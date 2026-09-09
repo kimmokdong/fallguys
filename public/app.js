@@ -111,6 +111,7 @@ function connect() {
       try { onMessage(JSON.parse(event.data)); } catch (error) { console.error('메시지 처리 오류', error); }
     });
     socket.addEventListener('close', (event) => {
+      sound.setMusicPlaying(false);
       clearTimeout(timeout); connecting = null; setConnection(false); resetInput();
       $('#entry-submit').disabled = false;
       reject(new Error('서버에 연결할 수 없어요. 잠시 후 다시 시도해주세요.'));
@@ -236,6 +237,7 @@ $('#character-grid').addEventListener('click', (event) => { const button = event
 $('#character-done').addEventListener('click', () => $('#character-dialog').close());
 
 function switchScreen(mode) {
+  if (mode !== 'game') sound.setMusicPlaying(false);
   document.body.dataset.screen = mode;
   $('#nav-home').hidden = mode !== 'home';
   $('#nav-maps').textContent = mode === 'room' ? '경기 정보' : '맵 보기';
@@ -270,6 +272,7 @@ $('#player-grid').addEventListener('click', event => {
 $('#kick-player').addEventListener('click', () => { if (send({ type:'kick', playerId:managedPlayerId })) $('#manage-dialog').close(); });
 
 function renderRoom(previous) {
+  sound.setMusicPlaying(room.phase === 'playing', room.phase === 'countdown');
   const host = room.hostId === myId;
   const me = room.players.find((p) => p.id === myId);
   const previewChanged = me && (profile.character !== me.character || profile.color !== me.color || previous?.settings.characterMode !== room.settings.characterMode);
@@ -522,7 +525,7 @@ const controlKeys = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDo
 window.addEventListener('keydown', (event) => { if (room && ['countdown', 'playing'].includes(room.phase) && controlKeys.has(event.code) && !document.querySelector('dialog[open]') && !['INPUT','SELECT'].includes(event.target.tagName) && !(event.target.tagName === 'BUTTON' && event.code === 'Space') && !$('#game-screen').classList.contains('spectating')) { event.preventDefault(); keys.add(event.code); if (!event.repeat && event.code === 'Space') queuedActions.jump = true; if (!event.repeat && event.code === 'KeyE') queuedActions.dive = true; } });
 window.addEventListener('keyup', (event) => keys.delete(event.code));
 window.addEventListener('blur', resetInput);
-document.addEventListener('visibilitychange', () => { if (document.hidden) resetInput(); else sound.unlock(); });
+document.addEventListener('visibilitychange', () => { sound.syncMusic(); if (document.hidden) resetInput(); else sound.unlock(); });
 setInterval(() => {
   if (!room || room.phase !== 'playing' || document.hidden || $('#game-screen').classList.contains('spectating')) return;
   const left = keys.has('KeyA') || keys.has('ArrowLeft'), right = keys.has('KeyD') || keys.has('ArrowRight');

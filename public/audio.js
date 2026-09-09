@@ -1,10 +1,22 @@
-// 외부 음원 없이 짧은 효과음을 합성한다. 사용자 입력 뒤에만 오디오를 시작한다.
+import { GameMusic } from './music.js';
+
+// 사용자 입력으로 오디오를 연 뒤 효과음과 배경음악에 같은 음량 설정을 적용합니다.
 export class GameAudio {
   constructor(enabled = true, volume = .75) { this.enabled = enabled; this.volume = volume; this.lastHit = 0; }
   get ready() { return this.enabled && this.context?.state === 'running'; }
   setVolume(value) {
     this.volume = Math.max(0, Math.min(1, Number(value) || 0));
     if (this.master) this.master.gain.setTargetAtTime(this.enabled ? this.volume : 0, this.context.currentTime, .03);
+    this.syncMusic();
+  }
+  setMusicPlaying(playing, preparing = false) {
+    this.musicPlaying = playing;
+    this.musicPreparing = preparing;
+    this.syncMusic();
+  }
+  syncMusic() {
+    const audible = this.ready && this.volume > 0 && !document.hidden;
+    this.music?.setPlaying(Boolean(this.musicPlaying && audible), Boolean(this.musicPreparing && audible));
   }
   async unlock() {
     if (!this.enabled) return;
@@ -14,7 +26,8 @@ export class GameAudio {
       if (!this.context || this.context.state === 'closed') {
         this.context = new Context();
         this.master = this.context.createGain(); this.master.connect(this.context.destination);
-        this.context.onstatechange = () => this.onChange?.();
+        this.music = new GameMusic(this.context, this.master);
+        this.context.onstatechange = () => { this.syncMusic(); this.onChange?.(); };
       }
       if (this.context.state !== 'running') await this.context.resume();
       this.setVolume(this.volume); this.onChange?.();

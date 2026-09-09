@@ -11,7 +11,7 @@ import { addRoundScores } from './public/results.js';
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const PUBLIC = resolve(ROOT, 'public');
-const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.json': 'application/json' };
+const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.json': 'application/json', '.mp3': 'audio/mpeg' };
 const EMPTY_INPUT = { x: 0, z: 0, jump: false, dive: false };
 const validCharacter = (id) => CHARACTERS.some((item) => item.id === id);
 const validColor = (id) => COLORS.some((item) => item.id === id);
@@ -39,11 +39,21 @@ export function createGameServer({ reconnectGraceMs = 20_000, countdownMs = 6_00
       }
       const info = await stat(path);
       if (!info.isFile()) throw new Error('not found');
+      const musicHash = pathname.match(/^\/music\/[a-z0-9-]+\.([a-f0-9]{12})\.mp3$/)?.[1];
+      if (musicHash) {
+        const etag = `"${musicHash}"`;
+        res.setHeader('ETag', etag);
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        if (req.headers['if-none-match']?.split(',').some(value => value.trim().replace(/^W\//, '') === etag || value.trim() === '*')) {
+          res.writeHead(304).end(); return;
+        }
+      }
       res.writeHead(200, {
         'Content-Type': MIME[extname(path)] || 'application/octet-stream',
         'Content-Length': info.size,
         'X-Content-Type-Options': 'nosniff',
-        'Cache-Control': 'no-cache',
+        // 내용 해시가 붙은 배포 음원만 오래 저장하고, 화면·게임 코드는 항상 갱신합니다.
+        'Cache-Control': musicHash ? 'public, max-age=31536000, immutable' : 'no-cache',
       });
       res.end(req.method === 'HEAD' ? undefined : await readFile(path));
     } catch {
