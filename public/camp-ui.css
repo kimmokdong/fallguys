@@ -23,3 +23,127 @@ dialog{max-width:min(500px,calc(100% - 32px));max-height:calc(100dvh - 48px)}.di
 /* 멀리서도 읽기 쉬운 대기실 방 코드 */
 .room-heading .room-identity{display:flex;align-items:center;flex-wrap:wrap;gap:10px 20px}.room-code-group{display:inline-flex;align-items:center;gap:12px}.room-code-group small{font-size:14px;color:#5e6e56}.room-heading #room-code{display:inline-block;font-size:38px;line-height:1.1;letter-spacing:5px;padding:8px 14px;color:#e9e5d2;background:#315b40;border-radius:10px}
 @media(max-width:760px){.room-heading{flex-wrap:wrap;gap:16px}.room-heading .room-identity{gap:10px}.room-heading #room-code{font-size:28px;letter-spacing:3px;padding:8px 10px}.room-code-group{gap:8px}}
+
+/* 화면의 실제 높이에 맞춰 배치하고, 긴 목록만 내부에서 스크롤합니다. */
+:root{--screen-gap:clamp(10px,2dvh,24px);--panel-pad:clamp(14px,2.5dvh,28px);--side-pad:clamp(16px,3vw,36px)}
+body:not([data-screen=game]){height:100dvh;display:flex;flex-direction:column}
+.site-header{flex:none;height:clamp(54px,8dvh,72px);min-height:0;margin:var(--screen-gap) auto 12px;padding:10px 18px}
+.page-shell{flex:1;min-height:0;display:flex;flex-direction:column;margin:0 auto var(--screen-gap)}
+body:not([data-screen=game]) .button{font-size:clamp(15px,2dvh,18px);min-height:44px;padding:clamp(9px,1.5dvh,13px) clamp(12px,2vw,21px)}
+.hero{flex:1;min-height:0;padding:clamp(20px,4dvh,38px) clamp(20px,3.5vw,44px);gap:clamp(16px,3vw,30px)}
+.hero h1{font-size:clamp(38px,min(5.2vw,7.5dvh),68px);margin:clamp(12px,3dvh,26px) 0 clamp(12px,2.5dvh,22px)}
+.hero p{margin-bottom:12px;font-size:clamp(15px,2dvh,18px)}
+.hero-actions{margin:clamp(14px,3dvh,30px) 0;flex-wrap:wrap}
+.hero-visual{height:min(440px,100%);min-height:0;max-height:100%;aspect-ratio:auto}
+.camp-room{flex:1;min-height:0;display:flex;flex-direction:column;padding:var(--panel-pad) var(--side-pad)}
+.room-heading{flex:none;margin-bottom:clamp(12px,2.5dvh,24px)}
+.room-heading h1{font-size:clamp(28px,4.7dvh,42px)}
+.room-heading #room-code{font-size:clamp(26px,4.3dvh,38px)}
+.camp-room-grid{flex:1;min-height:0;grid-template-columns:clamp(170px,21vw,245px) minmax(0,1fr);gap:clamp(16px,2.5vw,30px)}
+.my-camp{display:flex;flex-direction:column;min-height:0}
+.self-card{flex:1;min-height:0;padding:clamp(8px,1.5dvh,13px) 12px}
+.self-card .lobby-visual{flex:1;min-height:40px;max-height:158px;height:auto;width:100%}
+.self-card>strong{flex:none;font-size:clamp(20px,3dvh,27px);margin:5px 0}
+.self-card #lobby-character{flex:none;margin-top:clamp(6px,1.7dvh,16px);white-space:normal}
+.course-summary{flex:none;margin-top:clamp(8px,1.5dvh,14px);padding:clamp(9px,1.5dvh,13px) 12px;gap:4px}
+.course-summary strong{font-size:clamp(15px,2dvh,18px)}
+.panel-heading{margin-bottom:clamp(8px,1.5dvh,14px)}
+.panel-heading h2{font-size:clamp(20px,2.8dvh,25px)}
+.player-grid{flex:1;min-height:0;max-height:none;gap:clamp(8px,1.4dvh,12px)}
+.player-card{min-height:clamp(125px,20dvh,177px);padding:8px 6px;gap:4px}
+.player-portrait{width:clamp(48px,9dvh,80px);height:clamp(46px,8.7dvh,78px)}
+.player-name{font-size:clamp(16px,2.5dvh,22px)}
+.camp-status{max-width:100%;font-size:clamp(11px,1.6dvh,14px);padding:5px 7px}
+.camp-room-footer{flex:none;padding:clamp(10px,2dvh,18px) var(--side-pad);padding-bottom:max(clamp(10px,2dvh,18px),env(safe-area-inset-bottom));gap:12px}
+.camp-room-footer p{font-size:clamp(14px,2dvh,18px)}
+.camp-room-footer .button{min-width:clamp(180px,24vw,270px)}
+dialog{max-height:calc(100dvh - 2 * var(--screen-gap))}
+.camp-page-dialog{max-width:calc(100% - 2 * var(--screen-gap))}
+.dialog-body{padding:clamp(18px,3dvh,30px)}
+.entry-layout{min-height:0;padding:clamp(24px,5dvh,55px) clamp(24px,5vw,70px);gap:clamp(24px,5vw,60px)}
+.entry-intro h2{font-size:clamp(28px,4.8dvh,43px);margin:14px 0}
+.entry-layout input{min-height:48px;font-size:clamp(20px,2.8dvh,25px)}
+#entry-avatar{width:clamp(100px,24dvh,210px);height:clamp(100px,24dvh,210px)}
+.character-dialog[open]{height:min(780px,calc(100dvh - 2 * var(--screen-gap)));display:flex;flex-direction:column;overflow:hidden}
+.closet-header,.closet-footer{flex:none;padding:clamp(12px,2dvh,20px) var(--side-pad)}
+.closet-header h2{font-size:clamp(26px,4dvh,36px)}
+.camp-closet{flex:1;min-height:0;grid-template-columns:clamp(190px,24vw,285px) minmax(0,1fr);gap:clamp(16px,2.5vw,30px);padding:0 var(--side-pad) var(--panel-pad)}
+.closet-preview{min-height:0;display:flex;flex-direction:column}
+.character-preview{flex:1;min-height:0;padding:8px;margin-bottom:8px;gap:6px}
+.character-preview img{flex:1;min-height:0;max-height:205px;width:100%;object-fit:contain}
+.character-preview strong{flex:none;font-size:clamp(15px,2.2dvh,20px)}
+.color-picker{flex:none;grid-template-columns:repeat(5,34px);gap:8px; margin:8px 0 0}
+.color-swatch{width:32px;height:32px}
+.character-grid{max-height:none;grid-template-columns:repeat(6,minmax(0,1fr))}
+.character-option .char-model{width:100%;height:clamp(48px,9dvh,82px)}
+.closet-footer .button{min-width:180px}
+#settings-dialog[open] .dialog-body{display:flex;flex-direction:column;max-height:calc(100dvh - 2 * var(--screen-gap) - 2px)}
+#settings-dialog h2,#settings-dialog .full{flex:none}
+#settings-form{min-height:0;overflow:auto;overscroll-behavior:contain;padding:0 5px 2px 0;scrollbar-width:thin}
+#maps-dialog[open]{height:min(850px,calc(100dvh - 2 * var(--screen-gap)))}
+#maps-dialog .dialog-body,#maps-dialog .maps-section{height:100%;min-height:0;display:flex;flex-direction:column}
+#maps-dialog .section-top,#maps-dialog .filter-row{flex:none}
+#maps-dialog .map-grid{flex:1;min-height:0;overflow:auto;align-content:start;grid-auto-rows:max-content;padding:3px;scrollbar-width:thin}
+.results-overlay{padding:var(--screen-gap)}
+.results-card{height:min(860px,calc(100dvh - 2 * var(--screen-gap)));padding:clamp(14px,2.5dvh,25px) var(--side-pad) 0;overflow:hidden}
+.results-heading h2{font-size:clamp(23px,3.4dvh,30px)}
+.reveal-progress{margin:clamp(8px,1.6dvh,14px) 0}
+.camp-result-body{flex:1;min-height:0;gap:clamp(12px,2vw,24px);margin-bottom:clamp(10px,2dvh,20px)}
+.result-spotlight{min-height:0;padding:clamp(10px,2dvh,20px)}
+#spotlight-person .spot-place{font-size:clamp(28px,4.9dvh,44px);margin:clamp(6px,1.7dvh,15px) 0 0}
+#spotlight-person img{width:min(245px,100%);height:clamp(90px,26dvh,245px)}
+#spotlight-person>strong{font-size:clamp(22px,3.5dvh,31px)}
+.results-list{grid-template-rows:repeat(var(--rows),minmax(0,1fr));overflow:hidden;gap:clamp(5px,1dvh,8px)}
+.result-photo{height:clamp(32px,8dvh,85px);flex-basis:clamp(32px,8dvh,85px)}
+.results-overlay.crowded .result-photo{height:clamp(28px,7dvh,65px);flex-basis:clamp(28px,7dvh,65px)}
+.results-footer{margin:0 calc(-1 * var(--side-pad));padding:clamp(10px,2dvh,17px) var(--side-pad);gap:12px}
+.results-footer .button{min-height:44px;font-size:clamp(15px,2dvh,18px);padding:10px 16px}
+
+/* 크롬북·태블릿에서도 PC의 좌우 구성을 유지합니다. */
+@media(min-width:600px) and (max-width:1100px){
+  .site-header{flex-wrap:nowrap;gap:12px}.site-header nav{order:0;width:auto;margin-left:auto;height:100%;gap:14px}
+  .site-header .brand{font-size:22px}.site-header .sound-toggle{margin-left:0}
+  .hero{display:grid;grid-template-columns:1.1fr 1fr}.hero-visual{width:100%}
+  .self-card{display:flex;flex-direction:column;gap:0}.self-card>strong{text-align:center}
+  .camp-room-footer{flex-direction:row;align-items:center}.camp-room-footer .button{width:auto}
+  .entry-layout{grid-template-columns:1fr 1fr}.entry-intro{padding:0}.entry-intro .entry-character{position:static}
+  .closet-header{display:flex}.closet-header #character-help{margin:0 25px 0 0}
+  .character-grid{grid-template-columns:repeat(5,minmax(0,1fr))}
+  .closet-footer{flex-wrap:nowrap}.closet-footer .button{width:auto}
+  .camp-result-body{display:grid;grid-template-columns:.7fr 1.4fr}
+  .results-list{flex:1;grid-template-columns:repeat(var(--columns),minmax(0,1fr))}
+  .results-footer{flex-direction:row;align-items:center}.results-footer .button{width:auto}
+}
+@media(min-width:600px) and (max-width:850px){
+  .page-shell,.site-header{width:calc(100% - 24px)}
+  .camp-room-grid{grid-template-columns:170px minmax(0,1fr)}
+  .player-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .camp-closet{grid-template-columns:180px minmax(0,1fr)}
+  .character-grid{grid-template-columns:repeat(4,minmax(0,1fr))}
+  .home-facts{gap:12px;flex-wrap:wrap}.hero h1{letter-spacing:-2px}
+  .results-overlay.crowded .tile-caption strong{font-size:13px}
+}
+/* 세로 휴대폰은 목록 공간을 확보하고 주요 버튼은 화면 안에 남깁니다. */
+@media(max-width:599px){
+  .site-header{height:auto;min-height:0;gap:6px;padding:10px 12px}.site-header nav{height:26px}
+  .hero{gap:14px}.hero-copy{flex:none}.hero-visual{flex:1;width:100%;min-height:90px}
+  .hero h1{font-size:36px;margin:12px 0;letter-spacing:-2px}.hero-actions{margin:12px 0}.hero p{font-size:15px}
+  .camp-room{padding:12px}.room-heading{gap:8px;margin-bottom:12px}.room-heading h1{font-size:26px}
+  .room-heading .room-identity{margin-top:6px;gap:6px}.room-heading #room-code{font-size:24px;letter-spacing:2px}
+  .camp-room-grid{display:flex;flex-direction:column;gap:12px}
+  .my-camp{flex:none;display:grid;grid-template-columns:1fr}.self-card{display:grid;grid-template-columns:85px minmax(0,1fr);gap:3px 10px;flex:none;padding:8px}
+  .self-card .lobby-visual{height:100px;min-height:0;grid-row:1/5}.self-card>strong{font-size:20px;text-align:left;margin:0}
+  .self-card #lobby-character{min-height:36px;font-size:13px;margin:0;padding:6px}.course-summary{margin-top:6px;padding:8px 10px;flex-direction:row;align-items:center;gap:8px;flex-wrap:wrap}
+  .course-summary #host-badge{margin-left:auto}.course-summary>span{font-size:11px}.course-summary strong{font-size:14px}
+  .players-panel{flex:1}.player-card{min-height:118px}.player-portrait{width:46px;height:46px}.player-name{font-size:16px}
+  .camp-room-footer{padding:10px 12px;gap:6px}.camp-room-footer p{font-size:13px}.camp-room-footer .button{width:100%;min-width:0}
+  .entry-layout{padding:26px 20px;gap:16px}.entry-intro .entry-character{position:absolute;width:80px;height:95px}
+  .entry-intro .entry-character #entry-avatar{width:100%;height:100%}.entry-intro h2{font-size:27px}
+  .camp-closet{grid-template-columns:1fr;gap:12px;padding:0 14px 14px}.closet-header{padding:18px 16px 10px}
+  .closet-preview{flex:none;display:grid;grid-template-columns:110px minmax(0,1fr);gap:12px}.character-preview{margin:0;height:150px}
+  .character-preview img{max-height:100px}.character-preview strong{font-size:13px}.color-picker{grid-template-columns:repeat(5,28px);gap:7px;margin:0}.color-swatch{width:28px;height:28px}
+  .character-grid{grid-template-columns:repeat(4,minmax(0,1fr))}.closet-footer{padding:10px 14px;gap:6px}.closet-footer>span{font-size:13px}
+  .results-card{overflow:auto}.camp-result-body{flex:none;display:flex}.result-spotlight{min-height:240px}
+  .results-list{flex:none;grid-template-columns:repeat(3,minmax(0,1fr));grid-template-rows:none;grid-auto-rows:115px;overflow:visible}
+  .results-footer{position:sticky;bottom:0;z-index:2;gap:6px}.results-footer .field-help{font-size:13px}
+}
