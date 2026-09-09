@@ -6,6 +6,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { WebSocketServer, WebSocket } from 'ws';
 import { MAPS, createCourse, createRacer, stepPlayers } from './public/world.js';
 import { CHARACTERS, COLORS } from './public/catalog.js';
+import { roundResults, hasNextRound } from './public/match.js';
 import { addRoundScores } from './public/results.js';
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
@@ -63,6 +64,7 @@ export function createGameServer({ reconnectGraceMs = 20_000, countdownMs = 6_00
     return {
       id: player.id, name: player.name, character: player.character, color: player.color,
       connected: Boolean(player.socket), finished: player.racer?.finished || false,
+      eliminated: Boolean(player.eliminated), participating: Boolean(player.racer),
       fallCount: player.racer?.fallCount || 0, ready: Boolean(player.ready), choosing: Boolean(player.choosing),
     };
   }
@@ -71,21 +73,24 @@ export function createGameServer({ reconnectGraceMs = 20_000, countdownMs = 6_00
       code: room.code, hostId: room.hostId, phase: room.phase, settings: room.settings,
       players: [...room.players.values()].map(publicPlayer), mapId: room.mapId,
       startsAt: room.startsAt, endsAt: room.endsAt, resultsAt: room.resultsAt, results: room.results,
-      round: room.round, scores: room.scores,
+      round: room.round, scores: room.scores, rule: room.rule, quota: room.quota, isFinal: room.isFinal,
+      matchOver: room.matchOver, winnerId: room.winnerId, tieBreak: room.tieBreak, standings: room.standings,
     };
   }
   function announce(room) { broadcast(room, { type: 'room', room: roomSnapshot(room) }); }
   function state(room, now = Date.now()) {
     return {
-      type: 'state', time: Math.max(0, (now - room.startsAt) / 1_000),
+      type: 'state', collapsed: room.course?.collapsed || {}, time: Math.max(0, (now - room.startsAt) / 1_000),
       players: [...room.players.values()].filter((p) => p.racer).map((p) => ({ id: p.id, ...p.racer })),
     };
   }
   function removePlayer(room, player) {
     clearTimeout(player.disconnectTimer);
+    player.withdrawn = true; player.eliminated = true;
+    if (player.racer && !player.racer.finished) { player.racer.eliminated = true; player.racer.eliminatedAt = Math.max(0,(Date.now()-room.startsAt)/1000); }
     const result = room.results.find((row) => row.id === player.id);
     if (result) result.connected = false;
-    else if (room.phase === 'countdown' || room.phase === 'playing') {
+    else if (player.racer && (room.phase === 'countdown' || room.phase === 'playing')) {
       room.results.push({ ...publicPlayer(player), connected: false, rank: null, time: null, status: 'dnf' });
     }
     room.players.delete(player.id);
@@ -128,30 +133,56 @@ export function createGameServer({ reconnectGraceMs = 20_000, countdownMs = 6_00
     [...room.players.values()].forEach((player, i) => { player.character = pool[i % pool.length]; });
   }
   function endRound(room) {
-    room.phase = 'results';
-    room.resultsAt = Date.now();
-    const finished = room.results.map((row) => row.id);
-    const remaining = [...room.players.values()].filter((p) => !finished.includes(p.id));
-    remaining.sort((a, b) => (b.racer?.z || 0) - (a.racer?.z || 0));
-    room.results.push(...remaining.map((p) => ({
-      ...publicPlayer(p), rank: null, time: null, status: 'dnf',
-    })));
-    room.scores = addRoundScores(room.scores, room.results);
-    broadcast(room, state(room));
-    announce(room);
+    const time=Math.max(0,(Math.min(Date.now(),room.endsAt)-room.startsAt)/1000);
+    room.results=roundResults(room.roundPlayers,{rule:room.rule,mode:room.settings.matchMode,final:room.isFinal,quota:room.quota,time});
+    if (room.settings.matchMode==='elimination') {
+      const qualified=room.results.filter(r=>r.qualified && room.players.has(r.id) && !room.players.get(r.id).withdrawn);
+      const survivors=new Set(qualified.map(r=>r.id));
+      for(const p of room.roundPlayers) {
+        p.eliminated=!survivors.has(p.id);
+        const result=room.results.find(r=>r.id===p.id);
+        result.qualified=!p.eliminated;
+        if(p.eliminated) room.eliminationHistory.push({...result,eliminationRound:room.round});
+      }
+      room.matchOver=qualified.length<=1;
+      room.winnerId=qualified.length===1?qualified[0].id:null;
+      room.tieBreak=room.isFinal && qualified.length>1;
+      if(room.matchOver) {
+        room.standings=[...qualified.map(r=>({...r,status:'winner',rank:1})),...room.eliminationHistory.slice().sort((a,b)=>b.eliminationRound-a.eliminationRound || (a.rank??99)-(b.rank??99))];
+        room.standings.forEach((r,i)=>{
+          if(r.status==='winner') return;
+          const previous=room.standings[i-1];
+          const tied=previous && previous.status!=='winner' && previous.eliminationRound===r.eliminationRound && previous.roundRank===r.rank;
+          r.roundRank=r.rank; r.rank=tied?previous.rank:i+1; r.status='eliminated';
+        });
+      }
+    } else room.scores=addRoundScores(room.scores,room.results);
+    room.phase='results'; room.resultsAt=Date.now();
+    broadcast(room,state(room)); announce(room);
   }
 
   function startRound(room, now) {
-    const available = MAPS.filter((map) => !room.playedMaps.includes(map.id));
-    const pool = available.length ? available : MAPS;
-    room.mapId = room.settings.mapId === 'random' ? pool[Math.floor(Math.random() * pool.length)].id : room.settings.mapId;
-    room.playedMaps.push(room.mapId);
-    room.course = createCourse(room.mapId);
-    room.phase = 'countdown'; room.startsAt = now + countdownMs; room.endsAt = room.startsAt + room.settings.duration * 1_000; room.resultsAt = null; room.results = [];
-    if (room.settings.characterMode === 'random') assignCharacters(room);
-    [...room.players.values()].forEach((p, i) => { p.racer = createRacer(i); p.input = { ...EMPTY_INPUT }; p.pendingJump = false; p.pendingDive = false; });
-    announce(room);
-    broadcast(room, state(room, now));
+    const knockout=room.settings.matchMode==='elimination';
+    const participants=[...room.players.values()].filter(p=>!knockout || !p.eliminated);
+    room.isFinal=knockout && participants.length<=5;
+    room.rule=knockout ? (room.tieBreak?'race':room.isFinal?(Math.random()<.5?'race':'survival'):room.round%2===0?'survival':'race') : room.settings.matchMode==='series'?'race':room.settings.roundRule;
+    let maps=MAPS.filter(m=>m.rules.includes(room.rule) && (!room.isFinal || m.final));
+    const selected=MAPS.find(m=>m.id===room.settings.mapId);
+    if(selected && (!knockout || room.round===1)) {
+      room.rule=selected.rules.includes(room.rule)?room.rule:selected.rules[0];
+      maps=[selected];
+    }
+    const unplayed=maps.filter(m=>!room.playedMaps.includes(m.id)), pool=unplayed.length?unplayed:maps;
+    room.mapId=pool[Math.floor(Math.random()*pool.length)].id;
+    room.playedMaps.push(room.mapId); room.course=createCourse(room.mapId,room.rule);
+    room.quota=knockout?(room.isFinal?1:Math.ceil(participants.length/2)):participants.length;
+    room.phase='countdown'; room.startsAt=now+countdownMs; room.endsAt=room.startsAt+room.settings.duration*1000; room.resultsAt=null; room.results=[];
+    room.tieBreak=false;
+    if(room.settings.characterMode==='random' && (!knockout || room.round===1)) assignCharacters(room);
+    for(const p of room.players.values()) { p.racer=null; p.input={...EMPTY_INPUT}; p.pendingJump=false; p.pendingDive=false; }
+    participants.forEach((p,i)=>{ p.racer=createRacer(i); p.withdrawn=false; });
+    room.roundPlayers=participants;
+    announce(room); broadcast(room,state(room,now));
   }
 
   wss.on('connection', (socket) => {
@@ -179,8 +210,8 @@ export function createGameServer({ reconnectGraceMs = 20_000, countdownMs = 6_00
           do { code = randomBytes(4).toString('hex').slice(0, 6).toUpperCase(); } while (rooms.has(code));
           const room = {
             code, hostId: player.id, phase: 'lobby', players: new Map([[player.id, player]]),
-            settings: { mapId: 'random', characterMode: 'choice', duration: 180, matchMode: 'single', rounds: 3 },
-            mapId: null, startsAt: null, endsAt: null, resultsAt: null, results: [], course: null, round: 0, scores: [], playedMaps: [],
+            settings: { mapId: 'random', characterMode: 'choice', duration: 180, matchMode: 'elimination', roundRule: 'race', rounds: 3 },
+            mapId: null, startsAt: null, endsAt: null, resultsAt: null, results: [], course: null, round: 0, scores: [], playedMaps: [], roundPlayers: [], eliminationHistory: [], standings: [], matchOver: false,
           };
           rooms.set(code, room);
           attach(socket, room, player);
@@ -241,7 +272,7 @@ export function createGameServer({ reconnectGraceMs = 20_000, countdownMs = 6_00
         announce(room); return;
       }
       if (message.type === 'input') {
-        if (room.phase !== 'playing') return;
+        if (room.phase !== 'playing' || !player.racer || player.eliminated || player.racer.eliminated || player.racer.finished) return;
         if (message.jump === true && !player.input.jump) player.pendingJump = true;
         if (message.dive === true && !player.input.dive) player.pendingDive = true;
         player.input = {
@@ -270,15 +301,15 @@ export function createGameServer({ reconnectGraceMs = 20_000, countdownMs = 6_00
       if (!['settings', 'start', 'next', 'lobby'].includes(message.type)) { error(socket, '지원하지 않는 메시지입니다.'); return; }
       if (room.hostId !== player.id) { error(socket, '방장만 사용할 수 있는 기능입니다.'); return; }
       if (message.type === 'next') {
-        if (room.phase !== 'results' || room.settings.matchMode !== 'series' || room.round >= room.settings.rounds) { error(socket, '다음 라운드를 시작할 수 없습니다.'); return; }
+        if (room.phase !== 'results' || !hasNextRound(room)) { error(socket, '다음 라운드를 시작할 수 없습니다.'); return; }
         room.round++;
         startRound(room, now);
         return;
       }
       if (message.type === 'lobby') {
         room.phase = 'lobby'; room.mapId = null; room.startsAt = null; room.endsAt = null; room.resultsAt = null; room.results = []; room.course = null;
-        room.round = 0; room.scores = []; room.playedMaps = [];
-        for (const p of room.players.values()) { p.racer = null; p.input = { ...EMPTY_INPUT }; p.ready = false; p.choosing = false; }
+        room.round = 0; room.scores = []; room.playedMaps = []; room.roundPlayers=[]; room.eliminationHistory=[]; room.standings=[]; room.matchOver=false; room.winnerId=null; room.tieBreak=false;
+        for (const p of room.players.values()) { p.racer = null; p.eliminated = false; p.withdrawn = false; p.input = { ...EMPTY_INPUT }; p.ready = false; p.choosing = false; }
         announce(room);
         return;
       }
@@ -287,9 +318,15 @@ export function createGameServer({ reconnectGraceMs = 20_000, countdownMs = 6_00
         const before = JSON.stringify(room.settings);
         if (message.mapId !== undefined && message.mapId !== 'random' && !validMap(message.mapId)) { error(socket, '존재하지 않는 맵입니다.'); return; }
         if (message.characterMode !== undefined && !['choice', 'random'].includes(message.characterMode)) { error(socket, '캐릭터 배정 옵션이 올바르지 않습니다.'); return; }
-        if (message.duration !== undefined && (!Number.isInteger(message.duration) || message.duration < 120 || message.duration > 300)) { error(socket, '라운드 시간은 120초부터 300초까지 설정할 수 있습니다.'); return; }
-        if (message.matchMode !== undefined && !['single', 'series'].includes(message.matchMode)) { error(socket, '경기 모드가 올바르지 않습니다.'); return; }
+        if (message.duration !== undefined && (!Number.isInteger(message.duration) || message.duration < 60 || message.duration > 300)) { error(socket, '라운드 시간은 60초부터 300초까지 설정할 수 있습니다.'); return; }
+        if (message.matchMode !== undefined && !['single', 'series', 'elimination'].includes(message.matchMode)) { error(socket, '경기 모드가 올바르지 않습니다.'); return; }
         if (message.rounds !== undefined && ![3, 5, 7].includes(message.rounds)) { error(socket, '점수전은 3판, 5판, 7판 중 선택해 주세요.'); return; }
+        if(message.roundRule!==undefined && !['race','survival'].includes(message.roundRule)) { error(socket,'라운드 종류가 올바르지 않습니다.'); return; }
+        const mode=message.matchMode??room.settings.matchMode;
+        const rule=mode==='series'?'race':message.roundRule??room.settings.roundRule;
+        const mapId=message.mapId??room.settings.mapId;
+        if(mode!=='elimination' && mapId!=='random' && !MAPS.find(m=>m.id===mapId).rules.includes(rule)) { error(socket,'이 모드에서 사용할 수 없는 맵입니다.'); return; }
+        room.settings.roundRule=rule;
         if (message.mapId !== undefined) room.settings.mapId = message.mapId;
         if (message.duration !== undefined) room.settings.duration = message.duration;
         if (message.matchMode !== undefined) room.settings.matchMode = message.matchMode;
@@ -304,7 +341,8 @@ export function createGameServer({ reconnectGraceMs = 20_000, countdownMs = 6_00
       }
       const waiting = [...room.players.values()].filter(p => !p.socket || p.choosing || (p.id !== room.hostId && !p.ready));
       if (waiting.length) { error(socket, `아직 ${waiting.length}명이 준비 중입니다. 모두 준비하면 시작할 수 있어요.`); return; }
-      room.round = 1; room.scores = []; room.playedMaps = [];
+      room.round = 1; room.scores = []; room.playedMaps = []; room.eliminationHistory=[]; room.standings=[]; room.matchOver=false; room.winnerId=null; room.tieBreak=false;
+      for(const p of room.players.values()) { p.eliminated=false; p.withdrawn=false; }
       startRound(room, now);
     });
     socket.on('close', () => {
@@ -332,23 +370,19 @@ export function createGameServer({ reconnectGraceMs = 20_000, countdownMs = 6_00
       if (room.phase !== 'playing') continue;
       const time = (now - room.startsAt) / 1_000;
       let changed = false;
-      const active = [...room.players.values()].filter((p) => !p.racer.finished);
+      const active = [...room.players.values()].filter((p) => p.racer && !p.racer.finished && !p.racer.eliminated);
       for (const player of active) if (now - player.lastInput > 500) { player.input = { ...EMPTY_INPUT }; player.pendingJump = false; player.pendingDive = false; }
       stepPlayers(active.map((p) => p.racer), active.map((p) => ({ ...p.input, jump: p.input.jump || p.pendingJump, dive: p.input.dive || p.pendingDive })), room.course, time, dt);
       for (const player of active) { player.pendingJump = false; player.pendingDive = false; }
-      for (const player of room.players.values()) {
-        if (player.racer.finished && !room.results.some((row) => row.id === player.id)) {
-          const finishCount = room.results.filter((row) => row.status === 'finished').length;
-          room.results.splice(finishCount, 0, { ...publicPlayer(player), rank: finishCount + 1, time: player.racer.finishTime ?? time, status: 'finished' });
-          changed = true;
-        }
-      }
-      if (now >= room.endsAt || [...room.players.values()].every((p) => p.racer.finished)) {
-        endRound(room);
-      } else {
-        if (changed) announce(room);
-        if (frame % 2 === 0) broadcast(room, state(room, now));
-      }
+      const rows=roundResults(room.roundPlayers,{rule:room.rule,mode:room.settings.matchMode,final:room.isFinal,quota:room.quota,time});
+      const completed=rows.filter(r=>r.status==='finished' || r.status==='eliminated' || room.roundPlayers.some(p=>p.id===r.id && p.withdrawn));
+      changed=JSON.stringify(completed)!==JSON.stringify(room.results);
+      room.results=completed;
+      const remaining=room.roundPlayers.filter(p=>!p.withdrawn && !p.racer.finished && !p.racer.eliminated);
+      const enough=room.settings.matchMode==='elimination' && room.rule==='race' && rows.filter(r=>r.status==='finished').length>=room.quota;
+      const survivalDone=room.rule==='survival' && remaining.length<=(room.settings.matchMode==='elimination'?room.quota:1) && (room.roundPlayers.length>1 || remaining.length===0);
+      if(now>=room.endsAt || !remaining.length || enough || survivalDone) endRound(room);
+      else { if(changed) announce(room); if(frame%2===0) broadcast(room,state(room,now)); }
     }
   }, 1_000 / 30);
   ticker.unref();

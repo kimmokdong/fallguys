@@ -147,3 +147,30 @@ dialog{max-height:calc(100dvh - 2 * var(--screen-gap))}
   .results-list{flex:none;grid-template-columns:repeat(3,minmax(0,1fr));grid-template-rows:none;grid-auto-rows:115px;overflow:visible}
   .results-footer{position:sticky;bottom:0;z-index:2;gap:6px}.results-footer .field-help{font-size:13px}
 }
+
+/* 사진·이름·점수를 함께 보이게 하고, 점수는 인원수와 관계없이 유지합니다. */
+.result-front{display:grid;grid-template-columns:minmax(0,.8fr) minmax(0,1.2fr);grid-template-rows:20px minmax(0,1fr);column-gap:2px;align-items:center;padding:6px}
+.result-front .tile-rank{position:static;grid-column:1 / -1;grid-row:1;justify-self:start;padding:0 2px;font-size:15px;line-height:18px}
+.result-front .result-photo,.results-overlay.crowded .result-front .result-photo{grid-column:1;grid-row:2;width:100%;height:100%;max-height:105px;min-height:0;margin:0}
+.result-front .tile-caption{grid-column:2;grid-row:2;text-align:center;min-width:0;line-height:1.15}
+.result-front .tile-caption strong,.results-overlay.crowded .tile-caption strong{font-size:clamp(12px,1.15vw,17px);white-space:nowrap;text-overflow:ellipsis;overflow:hidden;display:block}
+.result-front .result-value{font-size:clamp(19px,2vw,29px);display:block;color:#284b34;white-space:nowrap;letter-spacing:-.8px;line-height:1.15;margin:4px 0}
+.results-overlay.crowded .tile-caption small,.result-front .tile-caption small{display:block;font-size:clamp(9px,.85vw,12px);line-height:1.2;margin:0;color:#4e6146;white-space:nowrap}
+.results-overlay.crowded .result-value{font-size:clamp(18px,1.7vw,25px)}
+.volume-control{display:flex;align-items:center;gap:12px;flex-wrap:wrap;font-size:18px;margin:18px 0 8px}.volume-control input{width:100%;accent-color:#315b40;height:28px}.volume-control output{margin-left:auto}
+.course-map{position:absolute;right:22px;bottom:76px;width:clamp(120px,16vw,195px);border:2px solid #344839;border-radius:14px;overflow:hidden;box-shadow:0 3px 0 #23382b33;pointer-events:none}
+.course-map svg{display:block;width:100%;height:auto}.round-objective{position:absolute;top:100px;left:50%;transform:translateX(-50%);border-radius:30px;padding:9px 18px;background:#294432ef;color:#f4e8c9;font-size:clamp(14px,1.35vw,20px);font-weight:800;text-align:center;white-space:nowrap}
+.game-progress{top:151px}.course-intro{z-index:12}.spectating .touch-controls{display:none}
+.game-results>:not(#results-overlay):not(#game-canvas-slot){display:none}
+@media(min-width:600px) and (max-height:700px){
+  .results-heading .section-kicker,.results-heading>div>p{display:none}
+  .results-heading h2{font-size:24px;margin:3px 0}.reveal-progress{margin:7px 0}.album-heading{margin:0 0 6px}
+  .camp-result-body{grid-template-columns:.6fr 1.65fr;gap:12px}
+  .result-front{grid-template-rows:15px minmax(0,1fr);padding:3px}.result-front .tile-rank{font-size:12px;line-height:15px}
+  .result-front .result-value{font-size:20px;margin:1px 0}.results-overlay.crowded .result-value{font-size:18px}
+  .result-front .tile-caption strong,.results-overlay.crowded .tile-caption strong{font-size:clamp(12px,1.1vw,16px)}
+  .results-overlay.crowded .tile-caption small{font-size:9px}
+  .course-map{width:126px;bottom:65px}.round-objective{top:81px;padding:6px 14px}.game-progress{top:122px}
+}
+@media(min-width:600px) and (max-width:850px){.camp-result-body{grid-template-columns:.5fr 1.5fr;gap:10px}.result-front{grid-template-columns:1fr;grid-template-rows:16px minmax(0,1fr) auto;padding:3px}.result-front .result-photo,.results-overlay.crowded .result-front .result-photo{grid-column:1;grid-row:2;max-height:65px}.result-front .tile-caption{grid-column:1;grid-row:3}.result-front .result-value{margin:2px 0}}
+@media(max-width:599px){.result-front .result-value{font-size:21px}.results-overlay.crowded .result-value{font-size:20px}.course-map{width:105px;bottom:165px;right:12px}.round-objective{top:85px;font-size:13px;max-width:94%;white-space:normal}.game-progress{top:137px}}

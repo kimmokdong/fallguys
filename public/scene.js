@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { createCourse, MAPS, obstaclePose, platformTiming } from './world.js';
+import { createCourse, MAPS, obstaclePose, platformTiming, platformPose } from './world.js';
 import { CHARACTERS, COLORS } from './catalog.js';
 
 const WHITE = '#d9d2bc', INK = '#293b32', GOLD = '#c5a15a';
@@ -396,17 +396,19 @@ export class GameScene {
   }
 
   setMode(mode, options = {}) {
-    if (this.mode === mode && mode === 'race' && this.mapId === options.mapId) {
+    if (this.mode === mode && mode === 'race' && this.mapId === options.mapId && this.rule === options.rule && !options.reset) {
       this.playerId = options.playerId ?? this.playerId;
       return;
     }
     this.clearContent();
     this.mode = mode;
     this.playerId = options.playerId;
-    this.mapId = options.mapId;
+    this.mapId = options.mapId; this.rule = options.rule;
     this.cameraReady = false;
+    this.camera.fov = mode === 'race' ? 48 : 40;
+    this.camera.updateProjectionMatrix();
     if (mode === 'race') {
-      this.course = createCourse(options.mapId || MAPS[0].id);
+      this.course = createCourse(options.mapId || MAPS[0].id, options.rule);
       const sky = this.course.colors?.sky || '#bec9fa';
       this.scene.background = new THREE.Color(sky);
       this.scene.fog = new THREE.Fog(sky, 62, 170);
@@ -520,9 +522,9 @@ export class GameScene {
     this.followId = id; this.cameraReady = false;
   }
 
-  arch(z, text, color, width = 10, y = 0) {
+  arch(z, text, color, width = 10, y = 0, x = 0, rotation = 0) {
     const group = new THREE.Group();
-    group.position.set(0, y, z);
+    group.position.set(x, y, z); group.rotation.y = rotation;
     for (const x of [-width / 2, width / 2]) {
       this.mesh(group, 'cylinder', color, [x, 2.2, 0], [0.2, 4.4, 0.2]);
       this.sphere(group, color, [x, 4.4, 0], [0.31, 0.31, 0.31]);
@@ -541,6 +543,8 @@ export class GameScene {
     course.platforms.forEach((platform) => {
       const group = new THREE.Group();
       group.position.set(platform.x, platform.y ?? 0, platform.z);
+      group.rotation.order = "YXZ"; group.rotation.y = platform.rotation || 0;
+      if (platform.rise) { group.rotation.x = -Math.atan2(platform.rise, platform.run); group.scale.z = Math.hypot(platform.run,platform.rise)/platform.run; }
       const color = platform.color || (platform.type === 'ice' ? '#4c7a78' : platform.type === 'conveyor' ? '#8b825c' : baseColor);
       this.box(group, CAMP.wood, [0, -0.34, 0], [platform.w, 0.68, platform.d]);
       this.box(group, CAMP.edge, [0, -0.03, 0], [platform.w - 0.09, 0.065, platform.d - 0.09]);
@@ -551,9 +555,9 @@ export class GameScene {
           for (const side of [-1, 1]) this.box(group, '#f5fbff', [side * 0.25, 0.051, z], [0.1, 0.03, 0.7]).rotation.y = side * (platform.speed < 0 ? -0.65 : 0.65);
         }
       }
-      if (platform.type === 'disappear') this.ring(group, '#fff7d7', [0, 0.07, 0], [Math.min(platform.w, platform.d) * 0.26, Math.min(platform.w, platform.d) * 0.26, 0.65], true);
-      if (platform.type === 'disappear') {
-        const warning = this.label('1초 후 사라짐', '#a24e28', '#fff1cf', 4.4);
+      if (['disappear','collapse','sink'].includes(platform.type)) this.ring(group, '#fff7d7', [0, 0.07, 0], [Math.min(platform.w, platform.d) * 0.26, Math.min(platform.w, platform.d) * 0.26, 0.65], true);
+      if (['disappear','collapse','sink'].includes(platform.type)) {
+        const warning = this.label('곧 사라져요!' , '#a24e28', '#fff1cf', 4.4);
         warning.position.set(0, 1.25, 0); warning.visible = false; group.add(warning);
         const bar = this.box(group, GOLD, [0, 0.1, -platform.d / 2 + 0.8], [platform.w - 1, 0.09, 0.35]);
         group.userData.warning = warning; group.userData.warningBar = bar;
@@ -577,6 +581,10 @@ export class GameScene {
         this.box(group, '#fff1f6', [0, h / 2 + 0.005, 0], [Math.min(w * 0.08, 0.8), h + 0.02, d + 0.02]);
         this.mesh(group, 'cylinder', GOLD, [0, h / 2, 0], [0.46, h + 0.24, 0.46]);
         for (const x of [-w / 2, w / 2]) this.sphere(group, color, [x, h / 2, 0], [h / 2, h / 2, d / 2]);
+      } else if (type === 'log') {
+        const log = this.mesh(group,'cylinder',CAMP.wood,[0,h/2,0],[.6,Math.max(w,d),.6]);
+        log.rotation.z = w>d ? Math.PI/2 : 0; log.rotation.x = w>d ? 0 : Math.PI/2;
+        for(const side of [-1,1]) this.sphere(group,CAMP.trim,[w>d?side*w/2:0,h/2,w>d?0:side*d/2],[.63,.63,.63]);
       } else if (type === 'bumper' || type === 'pendulum') {
         if (type === 'bumper') this.mesh(group, 'cylinder', color, [0, h / 2, 0], [w / 2, h, d / 2]);
         else this.sphere(group, color, [0, h / 2, 0], [w / 2, h / 2, d / 2]);
@@ -617,29 +625,39 @@ export class GameScene {
         for (let x = -w / 2 + 0.4; x < w / 2; x += 1.2) this.box(group, '#ede7ff', [x, h / 2, -d / 2 - 0.006], [0.13, h * 0.75, 0.025]);
         this.box(group, '#fff5da', [0, h - 0.12, 0], [w + 0.08, 0.17, d + 0.04]);
       }
+      if(type==='crusher') {
+        const warning=this.label('압축기 주의!',CAMP.hazard,WHITE,4.8); warning.position.set(0,4.5,0); warning.visible=false;
+        this.content.add(warning); group.userData.warning=warning;
+        for(const side of [-1,1]) this.box(this.content,CAMP.wood,[obstacle.x+side*(w/2+.35),3,obstacle.z],[.3,6,.3]);
+      }
+      if(type==='bouncer' && (obstacle.pushX || obstacle.pushZ)) {
+        const arrow=this.label('↟',CAMP.helper,INK,1.6); arrow.position.set(0,1.4,0); group.add(arrow);
+      }
       this.content.add(group);
       this.obstacles.push({ data: obstacle, group });
     }
-    for (const checkpoint of course.checkpoints || []) this.arch(checkpoint.z, 'CHECKPOINT', '#344839', Math.min(course.width - 1.5, 11), checkpoint.y || 0);
-    if (course.routes) {
-      for (const [x, text, color] of [[5, '← 안전 우회로', '#315b40'], [-5, '점프 지름길 →', '#a24e28']]) {
-        const sign = this.label(text, color, '#fff1cf', 4.8);
-        sign.position.set(x, 4.7, course.routes.startZ); this.content.add(sign);
-        this.box(this.content, CAMP.wood, [x, 2.2, course.routes.startZ], [0.15, 4.4, 0.15]);
-      }
+    for (const [i,checkpoint] of course.checkpoints.entries()) {
+      const before=course.path[i] || {x:checkpoint.x,z:checkpoint.z-1};
+      this.arch(checkpoint.z,'⚑ '+(i+1),'#344839',8,checkpoint.y,checkpoint.x,Math.atan2(checkpoint.x-before.x,checkpoint.z-before.z));
+      this.ring(this.content,CAMP.helper,[checkpoint.x,checkpoint.y+.08,checkpoint.z],[3,3,.45],true);
     }
-    const finishPlatform = course.platforms.find(p => Math.abs(p.z - course.finishZ) < p.d / 2);
-    const finishY = finishPlatform?.y || 0;
-    this.arch(course.finishZ, 'FINISH!', '#344839', Math.min(course.width - 0.5, 13), finishY);
-    for (let i = 0; i < 10; i++) for (let j = 0; j < 2; j++) this.box(this.content, (i + j) % 2 ? '#fff9f1' : '#344839', [(i - 4.5) * Math.min(course.width / 10, 1.3), finishY + 0.045, course.finishZ - 0.4 + j * 0.75], [Math.min(course.width / 10, 1.3), 0.055, 0.75]);
-    for (let z = 12; z < course.length + 25; z += 23) {
-      for (const side of [-1, 1]) {
-        this.cloud(side * (course.width / 2 + 9 + Math.sin(z) * 3), -4 - Math.cos(z) * 2, z, 2 + Math.sin(z * 0.5) * 0.6);
-        const orb = this.sphere(this.content, side < 0 ? '#b85c37' : '#c5a15a', [side * (course.width / 2 + 4.5), 5 + Math.sin(z), z], [0.7, 0.88, 0.7]);
-        orb.castShadow = false;
-      }
+    const finish=course.finish;
+    if(finish) {
+      const previous=course.path.at(-2)||{x:finish.x,z:finish.z-1};
+      const rotation=Math.atan2(finish.x-previous.x,finish.z-previous.z);
+      this.arch(finish.z,'FINISH!',CAMP.edge,8,finish.y,finish.x,rotation);
+      const mat=new THREE.Group(); mat.position.set(finish.x,finish.y+.05,finish.z); mat.rotation.y=rotation; this.content.add(mat);
+      for(let i=0;i<8;i++) for(let j=0;j<2;j++) this.box(mat,(i+j)%2?CAMP.trim:CAMP.edge,[i-3.5,0,j*.7-.35],[1,.04,.7]);
+    } else {
+      this.box(this.content,'#416d62',[0,-4,6],[110,.15,110]);
     }
-    this.finishY = finishY;
+    for(let i=0;i<course.path.length;i++) {
+      const n=course.path[i];
+      for(const side of [-1,1]) this.tree(n.x+side*18,-5,n.z,1.5);
+    }
+    this.finishY=finish?.y||0;
+    this.nextFlag=this.label('다음 깃발',CAMP.helper,INK,4);
+    this.nextFlag.visible=false; this.content.add(this.nextFlag);
     this.confetti = new THREE.Group();
     this.content.add(this.confetti);
     const confettiColors = ['#b85c37', '#ffcf54', '#61dfba', '#638364'];
@@ -681,13 +699,16 @@ export class GameScene {
 
   updateState(state) {
     if (!state) return;
+    if(this.course) this.course.collapsed = state.collapsed || {};
+    const ids=new Set((state.players||[]).map(p=>p.id));
+    for(const [id,p] of this.players) if(!ids.has(id)) { p.group.visible=false; p.target=null; p.current=null; }
     this.stateTime = Number.isFinite(state.time) ? state.time : this.stateTime;
     this.stateReceived = performance.now();
     for (const player of state.players || []) {
       const rendered = this.players.get(player.id);
       if (!rendered) continue;
       rendered.target = player;
-      rendered.group.visible = true;
+      rendered.group.visible = !player.eliminated;
       if (!rendered.current || Math.abs(rendered.current.z - player.z) > 15 || Math.abs(rendered.current.y - player.y) > 12) {
         rendered.current = { x: player.x, y: player.y, z: player.z, yaw: player.yaw || 0 };
         rendered.group.position.set(player.x, player.y, player.z);
@@ -728,6 +749,7 @@ export class GameScene {
         group.position.set(pose.x, pose.y ?? data.y ?? 0, pose.z);
         group.rotation.y = pose.rotation || 0;
         group.visible = pose.active !== false;
+        if(group.userData.warning) { group.userData.warning.visible=pose.warning; group.userData.warning.position.set(pose.x,4.5,pose.z); }
         if (group.userData.blades) group.userData.blades.rotation.z = t * 12;
         if (group.userData.wind) group.userData.wind.children.forEach((streak, i) => {
           const along = ((t * Math.sign(data.force) * 4 + i * 1.73) % 1 + 1) % 1 - 0.5;
@@ -736,8 +758,9 @@ export class GameScene {
         });
       }
       for (const { data, group } of this.platforms) {
-        if (data.type === 'disappear') {
-          const timing = platformTiming(data, serverTime);
+        const pose=platformPose(data,serverTime); group.position.set(pose.x,pose.y,pose.z);
+        if (['disappear','collapse','sink'].includes(data.type)) {
+          const timing = platformTiming(data, serverTime, this.course.collapsed);
           group.visible = timing.active;
           if (group.userData.warning) {
             group.userData.warning.visible = timing.warning;
@@ -750,7 +773,7 @@ export class GameScene {
       for (const player of this.players.values()) {
         if (!player.target || !player.current) continue;
         const target = player.target, current = player.current;
-        const extrapolate = !target.finished && !target.bumpTime && elapsed < 0.16 ? elapsed : 0;
+        const extrapolate = !target.finished && !target.eliminated && !target.bumpTime && elapsed < 0.16 ? elapsed : 0;
         current.x += (target.x + (target.vx || 0) * extrapolate - current.x) * alpha;
         current.y += (target.y + (target.vy || 0) * extrapolate - current.y) * alpha;
         current.z += (target.z + (target.vz || 0) * extrapolate - current.z) * alpha;
@@ -777,23 +800,28 @@ export class GameScene {
       const local = this.players.get(this.followId || this.playerId);
       if (Date.now() < this.introEnd) {
         const progress = Math.max(0, Math.min(1, (Date.now() - this.introStart) / 3000));
-        const z = matchMedia('(prefers-reduced-motion: reduce)').matches ? 20 : 15 + progress * 55;
-        this.camera.position.set(20, 25, z - 18); this.camera.lookAt(0, 0, z + 13);
-        this.sun.position.set(-16, 28, z + 13); this.sun.target.position.set(0, 0, z);
+        const along=matchMedia('(prefers-reduced-motion: reduce)').matches?0:progress*(this.course.path.length-1);
+        const index=Math.floor(along), a=this.course.path[index], b=this.course.path[Math.min(index+1,this.course.path.length-1)], fraction=along-index;
+        const point={x:a.x+(b.x-a.x)*fraction,y:a.y+(b.y-a.y)*fraction,z:a.z+(b.z-a.z)*fraction};
+        this.camera.position.set(point.x,point.y+30,point.z-22); this.camera.lookAt(point.x,point.y,point.z);
+        this.sun.position.set(point.x-16,point.y+28,point.z+13); this.sun.target.position.set(point.x,point.y,point.z);
         this.cameraReady = false;
       } else if (local?.current) {
         const point = local.current;
         const y = Math.max(-0.5, point.y);
-        const desired = new THREE.Vector3(point.x, y + 9.6, point.z - 13.8);
+        const desired = new THREE.Vector3(point.x, y + 18, point.z - 15);
         if (!this.cameraReady) { this.camera.position.copy(desired); this.cameraReady = true; }
         this.camera.position.lerp(desired, 1 - Math.exp(-5 * dt));
-        this.camera.lookAt(point.x, y + 1.1, point.z + 5.6);
+        this.camera.lookAt(point.x, y + .8, point.z + 1);
         this.sun.position.set(point.x - 16, 28, point.z + 13);
         this.sun.target.position.set(point.x, 0, point.z + 12);
+        const next=this.course.checkpoints[(local.target?.checkpoint??-1)+1] || this.course.finish;
+        this.nextFlag.visible=!!next && !local.target?.finished && !local.target?.eliminated;
+        if(next) this.nextFlag.position.set(next.x,next.y+5.7+Math.sin(t*3)*.2,next.z);
         if (this.confetti) this.confetti.visible = !!local.target?.finished;
         if (local.target?.finished && this.confetti) {
           this.confetti.children.forEach((piece, i) => {
-            piece.position.set(point.x + Math.sin(i * 4.71) * 5, this.finishY + 1 + ((i * 0.43 - t * 1.5) % 6 + 6) % 6, this.course.finishZ + Math.cos(i * 5.41) * 3);
+            piece.position.set((this.course.finish?.x||0) + Math.sin(i * 4.71) * 5, this.finishY + 1 + ((i * 0.43 - t * 1.5) % 6 + 6) % 6, this.course.finishZ + Math.cos(i * 5.41) * 3);
             piece.rotation.set(t + i, t * 0.7 + i, t * 1.1 + i);
           });
         }

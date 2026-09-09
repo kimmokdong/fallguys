@@ -52,6 +52,51 @@ async function prepareRoom(clients, host, total) {
 const roomWhere = (condition) => (message) => message.type === 'room' && condition(message.room);
 const ofType = (type) => (message) => message.type === type;
 
+test('12인 탈락전: 절반 통과, 탈락한 방장 재접속·관전·다음 판 시작, 마지막 한 명 우승',async t=>{
+  const app=await setup(t),host=await client(app.url);
+  host.send({type:'create',name:'관전 방장'}); const welcome=await host.wait(ofType('welcome'));
+  const guests=[];
+  for(let i=0;i<11;i++) { const p=await client(app.url); p.send({type:'join',code:welcome.code,name:'탈락전'+i}); Object.assign(p,await p.wait(ofType('welcome'))); guests.push(p); }
+  host.send({type:'settings',matchMode:'elimination',mapId:'jelly-garden',duration:60});
+  await host.wait(roomWhere(r=>r.settings.duration===60)); await prepareRoom(guests,host,12);
+  host.send({type:'start'}); await host.wait(roomWhere(r=>r.phase==='playing'));
+  const room=app.rooms.get(welcome.code); assert.equal(room.quota,6);
+  guests.slice(0,6).forEach((p,i)=>Object.assign(room.players.get(p.id).racer,{finished:true,finishTime:10+i}));
+  const r1=(await host.wait(roomWhere(r=>r.phase==='results'&&r.round===1))).room;
+  assert.equal(r1.matchOver,false); assert.equal(r1.results.filter(r=>r.qualified).length,6); assert.equal(r1.players.find(p=>p.id===welcome.id).eliminated,true);
+  host.socket.terminate(); const restored=await client(app.url); restored.send({type:'join',code:welcome.code,token:welcome.token});
+  await restored.wait(ofType('welcome')); const rejoined=(await restored.wait(roomWhere(r=>r.phase==='results'))).room;
+  assert.equal(rejoined.players.find(p=>p.id===welcome.id).eliminated,true);
+  restored.send({type:'next'}); const r2=(await restored.wait(roomWhere(r=>r.phase==='playing'&&r.round===2))).room;
+  assert.equal(r2.rule,'survival'); assert.equal(room.players.get(welcome.id).racer,null);
+  restored.send({type:'input',z:1,jump:true}); await new Promise(r=>setTimeout(r,30)); assert.equal(room.players.get(welcome.id).input.z,0);
+  room.roundPlayers.slice(3).forEach(p=>Object.assign(p.racer,{eliminated:true,eliminatedAt:10}));
+  const r2end=(await restored.wait(roomWhere(r=>r.phase==='results'&&r.round===2))).room;
+  assert.equal(r2end.results.filter(r=>r.qualified).length,3);
+  restored.send({type:'next'}); await restored.wait(roomWhere(r=>r.phase==='playing'&&r.round===3)); assert.equal(room.isFinal,true);
+  const champion=room.roundPlayers[0];
+  if(room.rule==='race') Object.assign(champion.racer,{finished:true,finishTime:8});
+  else room.roundPlayers.slice(1).forEach(p=>Object.assign(p.racer,{eliminated:true,eliminatedAt:8}));
+  const final=(await restored.wait(roomWhere(r=>r.phase==='results'&&r.round===3))).room;
+  assert.equal(final.matchOver,true); assert.equal(final.winnerId,champion.id); assert.equal(final.standings.length,12);
+  restored.send({type:'next'}); assert.match((await restored.wait(ofType('error'))).message,/다음 라운드/);
+  restored.send({type:'lobby'}); const lobby=(await restored.wait(roomWhere(r=>r.phase==='lobby'))).room;
+  assert.ok(lobby.players.every(p=>!p.eliminated));
+});
+
+test('생존 결승 시간 동률은 레이스 재결승, 전원 미완주는 우승자 없음, 맵 호환 검증',async t=>{
+  const app=await setup(t),host=await client(app.url); host.send({type:'create',name:'결승'}); const w=await host.wait(ofType('welcome'));
+  const guest=await client(app.url); guest.send({type:'join',code:w.code,name:'친구'}); await guest.wait(ofType('welcome'));
+  host.send({type:'settings',matchMode:'series',mapId:'leaf-square'}); assert.match((await host.wait(ofType('error'))).message,/사용할 수 없는/);
+  host.send({type:'settings',mapId:'log-lake',duration:60}); await host.wait(roomWhere(r=>r.settings.mapId==='log-lake')); await prepareRoom([guest],host,2);
+  host.send({type:'start'}); await host.wait(roomWhere(r=>r.phase==='playing'));
+  const room=app.rooms.get(w.code); room.endsAt=Date.now()-1;
+  const tied=(await host.wait(roomWhere(r=>r.phase==='results'))).room; assert.equal(tied.tieBreak,true); assert.equal(tied.matchOver,false);
+  host.send({type:'next'}); await host.wait(roomWhere(r=>r.phase==='playing'&&r.round===2)); assert.equal(room.rule,'race');
+  room.endsAt=Date.now()-1;
+  const none=(await host.wait(roomWhere(r=>r.phase==='results'&&r.round===2))).room; assert.equal(none.winnerId,null); assert.equal(none.matchOver,true);
+});
+
 test('30명 방, 권한, 옵션, 재접속, 서버 경기 종료와 방장 이전', async (t) => {
   const app = await setup(t);
   const host = await client(app.url);
@@ -159,7 +204,7 @@ test('경기 도중 탈퇴 기록, 재접속 유예, 같은 토큰 연결 교체
     runners.push({ ...runner, ...await runner.wait(ofType('welcome')) });
   }
   const [returning, leaver] = runners;
-  host.send({ type: 'settings', mapId: MAPS[0].id });
+  host.send({ type: 'settings', matchMode:'single', mapId: MAPS[0].id });
   await host.wait(roomWhere((room) => room.settings.mapId === MAPS[0].id));
   await prepareRoom(runners, host, app.rooms.get(welcome.code).players.size);
   host.send({ type: 'start' });
@@ -170,7 +215,7 @@ test('경기 도중 탈퇴 기록, 재접속 유예, 같은 토큰 연결 교체
   await host.wait(roomWhere((room) => room.players.find((p) => p.id === returning.id)?.connected === false));
   const active = app.rooms.get(welcome.code);
   const first = active.players.get(welcome.id).racer;
-  Object.assign(first, { x: 0, y: 0, z: active.course.finishZ + 1, vx: 0, vy: 0, vz: 0, grounded: true });
+  Object.assign(first, { ...active.course.finish, checkpoint:active.course.checkpoints.length-1, vx: 0, vy: 0, vz: 0, grounded: true });
   const firstFinish = await host.wait(roomWhere((room) => room.results.some((row) => row.id === welcome.id && row.status === 'finished')));
   assert.equal(firstFinish.room.phase, 'playing', '재접속 유예 중인 참가자가 있으면 조기에 결과를 확정하지 않는다.');
   assert.equal(firstFinish.room.results[0].rank, 1, '먼저 탈퇴한 DNF를 완주 순위에 포함하지 않는다.');
@@ -189,7 +234,7 @@ test('경기 도중 탈퇴 기록, 재접속 유예, 같은 토큰 연결 교체
   invalid.send({ type: 'join', code: welcome.code, token: 'expired', name: '만료된 자리' });
   assert.equal((await invalid.wait(ofType('error'))).code, 'SESSION_EXPIRED');
   const second = active.players.get(returning.id).racer;
-  Object.assign(second, { x: 0, y: 0, z: active.course.finishZ + 1, vx: 0, vy: 0, vz: 0, grounded: true });
+  Object.assign(second, { ...active.course.finish, checkpoint:active.course.checkpoints.length-1, vx: 0, vy: 0, vz: 0, grounded: true });
   const final = await replacement.wait(roomWhere((room) => room.phase === 'results'));
   assert.equal(final.room.results.length, 3, '출발한 세 명 모두 결과에 한 번씩 남는다.');
   assert.deepEqual(final.room.scores.map(row => row.score), [4, 2, 0], '중도 퇴장 후에도 출발 인원 3명을 기준으로 보너스를 계산한다.');
@@ -258,7 +303,7 @@ test('3판 누적 점수전: 라운드 전환 권한, 맵 중복 방지, 점수 
     await host.wait(roomWhere((r) => r.phase === 'playing' && r.round === round));
     const active = app.rooms.get(welcome.code); maps.add(active.mapId);
     const finisher = active.players.get(round === 1 ? welcome.id : joined.id);
-    Object.assign(finisher.racer, { x: 0, y: 0, z: active.course.finishZ + 1, vy: 0 });
+    Object.assign(finisher.racer, { ...active.course.finish, checkpoint:active.course.checkpoints.length-1, vy: 0 });
     await host.wait(roomWhere((r) => r.round === round && r.results.some((row) => row.status === 'finished')));
     active.endsAt = Date.now() - 1;
     const result = await host.wait(roomWhere((r) => r.phase === 'results' && r.round === round));

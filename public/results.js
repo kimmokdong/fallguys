@@ -1,8 +1,9 @@
-// 미완주를 먼저, 완주자는 낮은 순위부터 공개합니다. 원본 순위는 변경하지 않습니다.
+import { isSuccessful } from './match.js';
+// 미완주·탈락부터, 높은 순위는 마지막에 공개합니다.
 export function resultOrder(results) {
   return [...results].sort((a, b) => {
-    if ((a.status === 'finished') !== (b.status === 'finished')) return a.status === 'finished' ? -1 : 1;
-    return a.status === 'finished' ? a.rank - b.rank : 0;
+    if (isSuccessful(a) !== isSuccessful(b)) return isSuccessful(a) ? -1 : 1;
+    return (a.rank ?? Infinity) - (b.rank ?? Infinity) || 0;
   }).reverse();
 }
 

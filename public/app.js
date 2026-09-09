@@ -1,7 +1,8 @@
-import { MAPS, createCourse } from './world.js';
+import { MAPS, createCourse, availableMaps } from './world.js';
 import { CHARACTERS, COLORS } from './catalog.js';
 import { GameScene } from './scene.js';
 import { resultOrder, revealedCount, roundPoints } from './results.js';
+import { hasNextRound, isSuccessful, placeLabel } from './match.js';
 import { GameAudio } from './audio.js';
 
 const $ = (selector) => document.querySelector(selector);
@@ -14,9 +15,9 @@ if (!COLORS.some((c) => c.id === profile.color)) profile.color = 'coral';
 let savedSession = readStorage(sessionStorage, 'jelly-session');
 let socket, connecting, reconnectTimer, reconnectAttempts = 0, reconnectPending = false;
 let room = null, myId = null, entryMode = 'create', selectedMap = 'random', filter = 'all', sceneMode = 'preview', sceneMap = '';
-let latestState = null, stateAt = 0, toastTimer, requestTimer, scene, finishZ = 144;
+let latestState = null, stateAt = 0, toastTimer, requestTimer, scene, activeCourse;
 let resultsTimer, resultsKey = '', revealStart = 0, shownResults = 0, orderedResults = [], skipReveal = false;
-const sound = new GameAudio(readStorage(localStorage, 'camp-sound') !== false);
+const sound = new GameAudio(readStorage(localStorage, 'camp-sound') !== false, readStorage(localStorage, 'camp-volume') ?? .75);
 let soundState = null, watchId = null, watchOptionsKey = '', countdownSound = 0;
 const queuedActions = { jump: false, dive: false };
 const keys = new Set();
@@ -24,15 +25,22 @@ const touch = { x: 0, z: 0, jump: false, dive: false };
 
 function updateSoundButtons() {
   document.querySelectorAll('[data-sound-toggle]').forEach(button => {
-    button.textContent = sound.enabled ? '♪ 소리 켜짐' : '♪ 소리 꺼짐';
-    button.setAttribute('aria-pressed', String(sound.enabled));
+    button.textContent = sound.ready ? '♪ 소리 켜짐' : '♪ 소리 켜기';
+    button.setAttribute('aria-pressed', String(sound.ready));
   });
 }
-document.querySelectorAll('[data-sound-toggle]').forEach(button => button.addEventListener('click', () => {
-  sound.enabled = !sound.enabled; saveStorage(localStorage, 'camp-sound', sound.enabled);
-  sound.unlock(); updateSoundButtons();
+document.querySelectorAll('[data-sound-toggle]').forEach(button => button.addEventListener('click', async () => {
+  sound.enabled = !sound.ready; saveStorage(localStorage, 'camp-sound', sound.enabled);
+  sound.setVolume(sound.volume);
+  if (sound.enabled && await sound.unlock()) sound.play("confirm");
+  updateSoundButtons();
 }));
-window.addEventListener('pointerdown', () => sound.unlock(), { passive: true });
+sound.onChange=updateSoundButtons;
+$('#sound-volume').value=Math.round(sound.volume*100);
+$('#volume-value').textContent=Math.round(sound.volume*100)+'%';
+$('#sound-volume').addEventListener('input',event=>{ sound.setVolume(Number(event.target.value)/100); saveStorage(localStorage,'camp-volume',sound.volume); $('#volume-value').textContent=event.target.value+'%'; });
+$('#sound-test').addEventListener('click',async()=>{ sound.enabled=true; saveStorage(localStorage,'camp-sound',true); if(await sound.unlock()) sound.play('confirm'); else toast('소리를 열지 못했어요. 브라우저의 사이트 소리 설정을 확인해 주세요.'); });
+window.addEventListener('pointerdown', event => { if (!event.target.closest('[data-sound-toggle],#sound-test')) sound.unlock(); }, { passive: true });
 window.addEventListener('keydown', () => sound.unlock());
 updateSoundButtons();
 
@@ -53,18 +61,25 @@ try {
   $('#hero-visual').insertAdjacentHTML('beforeend', '<p style="position:absolute;top:40%;padding:25px;color:#315b40">3D 화면을 표시할 수 없습니다.<br>최신 브라우저의 하드웨어 가속을 확인해주세요.</p>');
 }
 
-function mapArt(map, index) {
-  const floor = map.colors.floor, accent = map.colors.accent;
-  let obstacles = '';
-  const spinner = (x, y, angle) => `<g transform="translate(${x} ${y}) rotate(${angle})"><rect x="-52" y="-5" width="104" height="11" rx="5" fill="${accent}"/><rect x="-5" y="-27" width="10" height="54" rx="5" fill="${accent}"/><circle r="10" fill="#bba477"/><circle r="5" fill="${accent}"/></g>`;
-  const bumper = (x, y) => `<ellipse cx="${x}" cy="${y + 6}" rx="15" ry="8" fill="#45446e20"/><path d="M${x - 14} ${y - 12}v14a14 7 0 0028 0v-14" fill="${accent}"/><ellipse cx="${x}" cy="${y - 12}" rx="14" ry="7" fill="#bba47799"/><ellipse cx="${x}" cy="${y - 12}" rx="8" ry="4" fill="${accent}"/>`;
-  if ([1, 0, 11].includes(index)) obstacles = spinner(138, 110, -15) + spinner(190, 61, 28) + bumper(228, 134) + bumper(85, 58);
-  else if ([2, 8, 9].includes(index)) obstacles = [0, 1, 2, 3, 4, 5].map((n) => `<g transform="translate(${83 + (n % 2) * 95} ${142 - n * 20})"><path d="M0 0l45 -7 24 13-45 8z" fill="${accent}" opacity="${index === 8 && n % 3 === 0 ? '.28' : '1'}"/><path d="M0 0v8l24 13v-8z" fill="#bba47755"/></g>`).join('');
-  else if ([4, 6].includes(index)) obstacles = [62, 116].map((y) => [82, 143, 204].map((x, i) => `<g transform="translate(${x} ${y})"><path d="M0 18v-34h43v34" fill="none" stroke="#bba477" stroke-width="5"/><path d="M4 -13h35v${i === 1 ? 12 : 27}h-35z" fill="${accent}"/><path d="M6 -8h31M6 -1h31" stroke="#bba47766" stroke-width="3"/></g>`).join('')).join('');
-  else if (index === 7) obstacles = [90, 155, 220].map((x, i) => `<path d="M${x} 13l${i % 2 ? -15 : 17} 75" stroke="#785b40" stroke-width="4"/><circle cx="${x + (i % 2 ? -15 : 17)}" cy="88" r="20" fill="${accent}"/><circle cx="${x + 10}" cy="81" r="7" fill="#bba47755"/>`).join('');
-  else if (index === 5) obstacles = [68, 223].map((x, i) => `<g transform="translate(${x} ${i ? 65 : 119})"><circle r="24" fill="#bba477"/><circle r="19" fill="${accent}"/>${[0, 90, 180, 270].map((angle) => `<ellipse cy="-8" rx="5" ry="11" transform="rotate(${angle})" fill="#bba47799"/>`).join('')}<circle r="5" fill="${floor}"/><path d="M26 -6h24M26 3h36M26 12h20" stroke="#bba47799" stroke-width="3" stroke-linecap="round"/></g>`).join('');
-  else obstacles = [0, 1, 2, 3, 4, 5].map((n) => bumper(91 + (n % 3) * 60, 65 + Math.floor(n / 3) * 57)).join('');
-  return `<svg viewBox="0 0 320 190" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><rect width="320" height="190" fill="${map.colors.sky}"/><circle cx="281" cy="34" r="33" fill="#bba47722"/><ellipse cx="43" cy="36" rx="33" ry="12" fill="#bba47755"/><ellipse cx="271" cy="160" rx="35" ry="10" fill="#bba47744"/><g transform="translate(0 6)"><path d="M52 156L84 29h156l39 127-117 25z" fill="#51547723"/><path d="M48 141L80 20h160l39 121-118 24z" fill="${floor}"/><path d="M48 141v9l113 24v-9z" fill="#3f437127"/><path d="M161 165l118-24v9l-118 24z" fill="#3f437140"/><path d="M55 138L84 27M272 138L236 27" stroke="#344839" stroke-width="5" stroke-linecap="round"/><path d="M149 139L153 39M172 141L167 39" stroke="#bba47733" stroke-width="2" stroke-dasharray="7 7"/>${obstacles}<g transform="translate(142 150)"><ellipse cy="7" rx="10" ry="4" fill="#57546630"/><rect x="-7" y="-14" width="14" height="20" rx="7" fill="#b85c37"/><rect x="-5" y="-10" width="10" height="7" rx="4" fill="#d9d2bc"/><circle cx="-2" cy="-6.5" r="1"/><circle cx="2" cy="-6.5" r="1"/></g></g></svg>`;
+function mapProjection(course) {
+  const bounds=course.platforms.map(p=>{const cos=Math.abs(Math.cos(p.rotation||0)),sin=Math.abs(Math.sin(p.rotation||0));return {x:p.x,z:p.z,ex:(cos*p.w+sin*p.d)/2+(p.axis==='x'?p.range||0:0),ez:(sin*p.w+cos*p.d)/2+(p.axis==='z'?p.range||0:0)};});
+  const minX=Math.min(...bounds.map(p=>p.x-p.ex)),maxX=Math.max(...bounds.map(p=>p.x+p.ex)),minZ=Math.min(...bounds.map(p=>p.z-p.ez)),maxZ=Math.max(...bounds.map(p=>p.z+p.ez));
+  const scale=Math.min(280/(maxX-minX),152/(maxZ-minZ)),x=160+(minX+maxX)/2*scale,y=100+(minZ+maxZ)/2*scale;
+  return p=>({x:x-p.x*scale,y:y-p.z*scale,scale});
+}
+function mapArt(map, index, course = createCourse(map.id)) {
+  const project=mapProjection(course),scale=project({x:0,z:0}).scale;
+  const tiles=course.platforms.map(p=>{ const n=project(p); return '<rect x="'+(-p.w*scale/2)+'" y="'+(-p.d*scale/2)+'" width="'+p.w*scale+'" height="'+p.d*scale+'" rx="1" transform="translate('+n.x+' '+n.y+') rotate('+(-(p.rotation||0)*180/Math.PI)+')" fill="'+(['collapse','disappear'].includes(p.type)?'#c5a15a':map.colors.floor)+'" stroke="#344839" stroke-width=".7"/>'; }).join('');
+  const flags=course.checkpoints.map((p,i)=>{const n=project(p);return '<circle cx="'+n.x+'" cy="'+n.y+'" r="6" fill="#ead9a4"/><text x="'+n.x+'" y="'+(n.y+3)+'" text-anchor="middle" fill="#283f31" font-size="8">'+(i+1)+'</text>';}).join('');
+  const f=course.finish?project(course.finish):null;
+  const start=project({x:0,z:6});
+  return '<svg viewBox="0 0 320 190" role="img" aria-label="'+escapeHTML(map.name)+' 코스 모양"><rect width="320" height="190" fill="'+map.colors.sky+'"/>'+tiles+flags+(f?'<circle cx="'+f.x+'" cy="'+f.y+'" r="5" fill="#b85c37"/>':'')+'<circle class="map-player" r="5" fill="#fff1cf" stroke="#283f31" stroke-width="2" cx="'+start.x+'" cy="'+start.y+'"/><text x="12" y="20" fill="#23382b" font-size="12">'+map.rules.map(r=>r==='survival'?'생존':'레이스').join(' · ')+'</text></svg>';
+}
+function mapOptions(settings) {
+  const maps=availableMaps(settings.matchMode,settings.roundRule);
+  const select=$('#map-select'), value=settings.mapId;
+  select.innerHTML='<option value="random">⤨ 랜덤으로 선택</option>'+maps.map(m=>'<option value="'+m.id+'">'+m.emoji+' '+m.name+'</option>').join('');
+  select.value=maps.some(m=>m.id===value)?value:'random';
 }
 
 function renderMaps() {
@@ -74,7 +89,7 @@ renderMaps();
 $('#map-select').insertAdjacentHTML('beforeend', MAPS.map((m) => `<option value="${m.id}">${m.emoji} ${m.name}</option>`).join(''));
 $('#map-grid').addEventListener('click', (event) => { const card = event.target.closest('[data-map]'); if (card) { selectedMap = card.dataset.map; renderMaps(); toast(`${MAPS.find((m) => m.id === selectedMap).name} 선택! 방을 만들면 이 맵으로 시작해요.`); } });
 document.querySelectorAll('[data-filter]').forEach((button) => button.addEventListener('click', () => { filter = button.dataset.filter; document.querySelectorAll('[data-filter]').forEach((b) => b.classList.toggle('active', b === button)); renderMaps(); }));
-$('#random-map').addEventListener('click', () => { selectedMap = 'random'; renderMaps(); toast('랜덤 모드! 시작할 때 12개 맵 중 하나를 골라드려요.'); });
+$('#random-map').addEventListener('click', () => { selectedMap = 'random'; renderMaps(); toast('랜덤 모드! 시작할 때 모드에 맞는 맵을 골라드려요.'); });
 
 function setConnection(online) {
   $('#connection-dot').className = online ? '' : 'off';
@@ -124,7 +139,7 @@ function onMessage(message) {
     $('#entry-submit').disabled = false;
     $('#entry-dialog').close();
     if ($('#character-dialog').open) send({ type: 'choosing', choosing: true });
-    if (entryMode === 'create' && selectedMap !== 'random') { send({ type: 'settings', mapId: selectedMap }); selectedMap = 'random'; }
+    if (entryMode === 'create' && selectedMap !== 'random') { send({ type: 'settings', matchMode:'single', roundRule:MAPS.find(m=>m.id===selectedMap).rules[0], mapId: selectedMap }); selectedMap = 'random'; }
     entryMode = 'join';
   } else if (message.type === 'room') {
     const previousRoom = room;
@@ -275,17 +290,21 @@ function renderRoom(previous) {
     const state = playerStatus(me);
     $('#self-status').textContent = state.text; $('#self-status').className = 'camp-status ' + state.kind;
     $('#host-badge').textContent = host ? '경기 설정 ⚙' : '경기 정보';
+    mapOptions(room.settings);
     $('#map-select').value = room.settings.mapId;
     $('#character-mode').value = room.settings.characterMode;
     $('#duration-select').value = room.settings.duration;
-    $('#match-mode').value = room.settings.matchMode || 'single';
+    $('#match-mode').value = room.settings.matchMode;
+    $('#round-rule').value=room.settings.roundRule; $('#rule-settings').hidden=room.settings.matchMode!=='single';
+    $('#map-select-label').textContent=room.settings.matchMode==='elimination'?'첫 라운드 맵':'플레이할 맵';
+    $('#mode-help').textContent=room.settings.matchMode==='elimination'?'레이스 상위 절반 · 생존은 끝까지 버티기. 5명 이하가 되면 결승! 이후 맵은 자동으로 골라요.':room.settings.matchMode==='series'?'레이스 맵으로 매판 같은 배점이에요.':'레이스는 완주 순위, 생존은 버틴 시간으로 겨뤄요.';
     $('#rounds-select').value = room.settings.rounds || 3;
     $('#rounds-settings').hidden = room.settings.matchMode !== 'series';
     document.querySelectorAll('#settings-form select').forEach(s => { s.disabled = !host; });
     const map = MAPS.find(m => m.id === room.settings.mapId);
     $('#selected-map-preview').textContent = map ? map.description : '시작할 때 코스를 골라요.';
     $('#course-name').textContent = map?.name || '랜덤 맵';
-    $('#course-meta').textContent = (room.settings.matchMode === 'series' ? room.settings.rounds + '판 점수전' : '한 판 승부') + ' · ' + room.settings.duration / 60 + '분';
+    $('#course-meta').textContent = (room.settings.matchMode === 'series' ? room.settings.rounds + '판 점수전' : room.settings.matchMode==='elimination'?'탈락전':room.settings.roundRule==='survival'?'단판 생존':'단판 레이스') + ' · ' + room.settings.duration / 60 + '분';
     const ready = room.players.filter(p => p.connected && !p.choosing && (p.ready || p.id === room.hostId)).length;
     $('#ready-count').textContent = ready + '명 준비';
     $('#ready-toggle').hidden = host;
@@ -303,14 +322,16 @@ function renderRoom(previous) {
     $('#results-overlay').hidden = true;
   } else {
     switchScreen('game');
-    if (sceneMode !== 'race' || sceneMap !== room.mapId || previous?.phase === 'lobby') {
-      scene?.setMode('race', { mapId: room.mapId, playerId: myId });
+    if (sceneMode !== 'race' || sceneMap !== room.mapId || previous?.startsAt !== room.startsAt) {
+      scene?.setMode('race', { mapId: room.mapId, playerId: myId, rule:room.rule, reset:true });
       scene?.setPlayers(room.players);
       sceneMode = 'race'; sceneMap = room.mapId; resetInput();
-      finishZ = createCourse(room.mapId).finishZ;
+      activeCourse = createCourse(room.mapId,room.rule);
+      $('#course-map').innerHTML=mapArt(activeCourse,0,activeCourse);
+      $('#intro-rule').textContent=activeCourse.tip; $('#controls-rule').textContent=activeCourse.tip;
     }
     if (previous?.startsAt !== room.startsAt) {
-      scene?.beginRound(room.startsAt); soundState = null; watchId = null; watchOptionsKey = ''; countdownSound = 0;
+      latestState=null; scene?.beginRound(room.startsAt); sound.unlock(); soundState = null; watchId = null; watchOptionsKey = ''; countdownSound = 0;
     }
     if (room.phase === 'playing' && previous?.phase === 'countdown') sound.play('go');
     const map = MAPS.find((m) => m.id === room.mapId);
@@ -319,8 +340,9 @@ function renderRoom(previous) {
     $('#game-map-name').textContent = map?.name || '레이스';
     const series = room.settings.matchMode === 'series';
     const myScore = room.scores?.find((row) => row.id === myId)?.score || 0;
-    $('#game-map-label').textContent = series ? `ROUND ${room.round} / ${room.settings.rounds} · 누적 ${myScore}점` : `CAMP JELLY · ${room.players.length} PLAYERS`;
+    $('#game-map-label').textContent = series ? `ROUND ${room.round} / ${room.settings.rounds} · 누적 ${myScore}점` : room.settings.matchMode==='elimination' ? (room.isFinal?'FINAL':'ROUND '+room.round)+' · '+(room.rule==='survival'?'생존':'레이스') : '단판 · '+(room.rule==='survival'?'생존':'레이스');
     $('#results-overlay').hidden = room.phase !== 'results';
+    $('#game-screen').classList.toggle('game-results', room.phase === 'results');
     if (room.phase === 'results') renderResults();
     else { clearInterval(resultsTimer); resultsKey = ''; }
     renderRaceState();
@@ -328,7 +350,12 @@ function renderRoom(previous) {
 }
 
 $('#ready-toggle').addEventListener('click', () => send({ type: 'ready', ready: !room.players.find(p => p.id === myId)?.ready }));
-$('#settings-form').addEventListener('change', () => send({ type: 'settings', mapId: $('#map-select').value, characterMode: $('#character-mode').value, duration: Number($('#duration-select').value), matchMode: $('#match-mode').value, rounds: Number($('#rounds-select').value) }));
+$('#settings-form').addEventListener('change', event => {
+  const settings={mapId:$('#map-select').value,characterMode:$('#character-mode').value,duration:Number($('#duration-select').value),matchMode:$('#match-mode').value,rounds:Number($('#rounds-select').value),roundRule:$('#round-rule').value};
+  if(settings.matchMode==='series') settings.roundRule='race';
+  if(event.target.id==='match-mode' || event.target.id==='round-rule') { mapOptions(settings); settings.mapId=$('#map-select').value; }
+  send({type:'settings',...settings});
+});
 $('#start-game').addEventListener('click', () => { if (send({ type: 'start' })) $('#start-game').disabled = true; });
 $('#copy-invite').addEventListener('click', async () => {
   const url = `${location.origin}/?room=${room.code}`;
@@ -346,48 +373,55 @@ function goHome() {
 function leaveRoom() { if (socket?.readyState === WebSocket.OPEN) send({ type: 'leave' }); else goHome(); }
 $('#leave-room').addEventListener('click', leaveRoom);
 $('#race-leave').addEventListener('click', leaveRoom);
-$('#return-lobby').addEventListener('click', () => { if (send({ type: room?.settings.matchMode === 'series' && room.round < room.settings.rounds ? 'next' : 'lobby' })) $('#return-lobby').disabled = true; });
+$('#return-lobby').addEventListener('click', () => { if (send({ type: room && hasNextRound(room) ? 'next' : 'lobby' })) $('#return-lobby').disabled = true; });
 
 function renderRaceState() {
-  if (!room || room.phase === 'lobby' || !latestState) return;
-  const racers = [...latestState.players].sort((a, b) => a.finished !== b.finished ? Number(b.finished) - Number(a.finished) : a.finished ? (a.finishTime ?? 0) - (b.finishTime ?? 0) : b.z - a.z);
-  const me = latestState.players.find((p) => p.id === myId);
-  const rank = racers.findIndex((p) => p.id === myId) + 1;
-  $('#my-rank').innerHTML = `${rank || '–'} <span>/ ${racers.length}</span>`;
-  $('#race-leaders').innerHTML = racers.slice(0, 5).map((p, i) => `<div class="race-leader ${p.id === myId ? 'me' : ''}"><span>${i + 1}. ${escapeHTML(room.players.find((r) => r.id === p.id)?.name || '젤리')}</span><span>${p.finished ? '✓' : ''}</span></div>`).join('');
-  if (me) {
-    $('#race-progress').style.width = `${Math.max(0, Math.min(100, me.z / finishZ * 100))}%`;
-    $('#race-status').hidden = !me.finished || room.phase === 'results';
-    if (room.phase === 'playing' && soundState) {
-      if (me.finished && !soundState.finished) sound.play('finish');
-      else if (me.checkpoint > soundState.checkpoint) sound.play('checkpoint');
-      else if ((me.jumpCount || 0) > (soundState.jumpCount || 0)) sound.play('jump');
-      else if ((me.landCount || 0) > (soundState.landCount || 0)) sound.play('land');
-      else if (me.diveCooldown > soundState.diveCooldown + .3) sound.play('dive');
-      else if (me.bumpTime > soundState.bumpTime + .05 || me.hitCooldown > soundState.hitCooldown + .15) sound.play('hit');
+  if(!room || room.phase==='lobby' || !latestState) return;
+  const racers=[...latestState.players].sort((a,b)=>Number(a.eliminated)-Number(b.eliminated)||Number(b.finished)-Number(a.finished)||(a.finished?(a.finishTime??0)-(b.finishTime??0):(b.progress||0)-(a.progress||0)));
+  const me=racers.find(p=>p.id===myId), alive=racers.filter(p=>!p.eliminated&&!p.finished), knockout=room.settings.matchMode==='elimination';
+  $('#ranking-label').textContent=room.rule==='survival'?'남은 참가자':'실시간 순위';
+  $('#my-rank').innerHTML=room.rule==='survival'?alive.length+' <span>명 생존</span>':(me&&!me.eliminated?racers.indexOf(me)+1:'관전')+' <span>/ '+racers.length+'</span>';
+  $('#race-leaders').innerHTML=racers.filter(p=>!p.eliminated).slice(0,5).map((p,i)=>'<div class="race-leader '+(p.id===myId?'me':'')+'"><span>'+(room.rule==='race'?(i+1)+'. ':'')+escapeHTML(room.players.find(r=>r.id===p.id)?.name||'젤리')+'</span><span>'+(p.finished?'✓':'')+'</span></div>').join('');
+  const passed=racers.filter(p=>p.finished).length;
+  $('#round-objective').textContent=room.rule==='survival'?(room.isFinal?'마지막 한 명이 우승!':'떨어지면 탈락 · '+alive.length+'명 생존'):knockout?(room.isFinal?'가장 먼저 왕관에 도착하세요!':'통과 '+passed+' / '+room.quota+'명'):'번호 깃발을 지나 결승선까지!';
+  $('#progress-start').textContent=room.rule==='survival'?'생존':'출발'; $('#progress-end').textContent=room.rule==='survival'?'시간까지 버티기':'⚑ 도착';
+  $('#race-progress').style.width=room.rule==='survival'?Math.min(100,latestState.time/room.settings.duration*100)+'%':Math.round((me?.progress||0)*100)+'%';
+  $('#race-status').hidden=true;
+  if(me) {
+    if(room.phase==='playing' && soundState) {
+      if(me.eliminated&&!soundState.eliminated) sound.play('out');
+      else if(me.finished&&!soundState.finished) sound.play('finish');
+      else if(me.checkpoint>soundState.checkpoint) sound.play('checkpoint');
+      else if((me.jumpCount||0)>(soundState.jumpCount||0)) sound.play('jump');
+      else if(me.diveCooldown>soundState.diveCooldown+.3) sound.play('dive');
+      else if(me.bumpTime>soundState.bumpTime+.05||me.hitCooldown>soundState.hitCooldown+.15) sound.play('hit');
+      else if((me.landCount||0)>(soundState.landCount||0)) sound.play('land');
     }
-    soundState = { ...me };
-    updateSpectator(me, racers);
+    soundState={...me};
   }
+  const focus=racers.find(p=>p.id===(watchId||myId));
+  if(focus && activeCourse) {
+    const position=mapProjection(activeCourse)(focus);
+    const dot=$('#course-map .map-player'); dot?.setAttribute('cx',position.x); dot?.setAttribute('cy',position.y);
+  }
+  updateSpectator(me,racers);
 }
 
-function updateSpectator(me, racers) {
-  const active = me.finished && room.phase === 'playing';
-  $('#spectator-panel').hidden = !active;
-  $('#game-screen').classList.toggle('spectating', active);
-  if (!active) { if (room.phase === 'results') scene?.followPlayer(null); return; }
-  $('#race-status').hidden = true;
-  const candidates = room.players.filter(p => p.id !== myId && p.connected && racers.some(r => r.id === p.id && !r.finished));
-  if (watchId !== myId && !candidates.some(p => p.id === watchId)) watchId = candidates[0]?.id || myId;
-  const options = [...candidates, { id: myId, name: '내 캐릭터' }];
-  const key = options.map(p => p.id + p.name).join('|');
-  if (key !== watchOptionsKey) {
-    $('#spectator-select').innerHTML = options.map(p => '<option value="' + p.id + '">' + escapeHTML(p.name) + '</option>').join('');
-    watchOptionsKey = key;
-  }
-  $('#spectator-select').value = watchId;
-  $('#spectator-status').textContent = '완주! ' + (me.finishTime?.toFixed(2) || '') + '초 · ' + candidates.length + '명이 달리고 있어요';
-  $('#spectator-prev').disabled = $('#spectator-next').disabled = !candidates.length;
+function updateSpectator(me,racers) {
+  const eliminated=room.players.find(p=>p.id===myId)?.eliminated || me?.eliminated || !me;
+  const active=!!(eliminated || me?.finished) && ['playing','countdown'].includes(room.phase);
+  $('#spectator-panel').hidden=!active; $('#game-screen').classList.toggle('spectating',active);
+  if(!active) { if(room.phase==='results') scene?.followPlayer(null); return; }
+  resetInput();
+  const candidates=room.players.filter(p=>p.id!==myId && racers.some(r=>r.id===p.id&&!r.finished&&!r.eliminated));
+  if(!candidates.some(p=>p.id===watchId) && (eliminated||watchId!==myId)) watchId=candidates[0]?.id || null;
+  const options=[...candidates,...(!eliminated?[{id:myId,name:'내 캐릭터'}]:[])];
+  const key=options.map(p=>p.id+p.name).join('|');
+  if(key!==watchOptionsKey) { $('#spectator-select').innerHTML=options.map(p=>'<option value="'+p.id+'">'+escapeHTML(p.name)+'</option>').join(''); watchOptionsKey=key; }
+  $('#spectator-select').value=watchId||'';
+  $('#spectator-status').textContent=eliminated?'탈락 · 친구 관전 중':room.settings.matchMode==='elimination'?'통과 확정 · 친구 관전 중':'완주! '+(me?.finishTime?.toFixed(2)||'')+'초';
+  $('#spectator-self').hidden=eliminated;
+  $('#spectator-prev').disabled=$('#spectator-next').disabled=candidates.length<2;
   scene?.followPlayer(watchId);
 }
 $('#spectator-select').addEventListener('change', event => { watchId = event.target.value; renderRaceState(); });
@@ -407,10 +441,11 @@ function renderResults() {
     clearInterval(resultsTimer);
     resultsKey = key; shownResults = 0; skipReveal = false;
     const overall = room.settings.matchMode === 'series' && room.round >= room.settings.rounds;
-    orderedResults = resultOrder(overall ? room.scores.map((r) => ({ ...r, status: 'finished', overall: true })) : room.results);
+    const tournamentFinal=room.settings.matchMode==='elimination' && room.matchOver;
+    orderedResults = resultOrder(tournamentFinal ? room.standings : overall ? room.scores.map((r) => ({ ...r, status: 'finished', overall: true })) : room.results);
     revealStart = performance.now() - Math.max(0, Date.now() - (room.resultsAt || Date.now()));
-    $('#result-title').textContent = overall ? `${room.settings.rounds}판의 승부, 최종 결과는?` : room.settings.matchMode === 'series' ? `${room.round} / ${room.settings.rounds} 라운드 결과` : '우리의 레이스, 그 결과는?';
-    $('#result-subtitle').textContent = overall ? '누적 점수가 낮은 순위부터… 최종 우승자를 만나요!' : '미완주부터 차례차례… 마지막에 우승자를 만나요!';
+    $('#result-title').textContent = overall ? `${room.settings.rounds}판의 승부, 최종 결과는?` : room.settings.matchMode === 'series' ? `${room.round} / ${room.settings.rounds} 라운드 결과` : '우리의 경기, 그 결과는?';
+    $('#result-subtitle').textContent = overall ? '누적 점수가 낮은 순위부터… 최종 우승자를 만나요!' : '낮은 순위부터 차례차례… 마지막에 우승자를 만나요!';
     $('#results-list').style.setProperty('--columns', Math.min(orderedResults.length <= 12 ? 4 : 6, orderedResults.length));
     $('#results-list').style.setProperty('--rows', Math.max(1, Math.ceil(orderedResults.length / (orderedResults.length <= 12 ? 4 : 6))));
     $('#results-overlay').classList.toggle('crowded', orderedResults.length > 12);
@@ -421,12 +456,14 @@ function renderResults() {
       const character = CHARACTERS.find((c) => c.id === r.character) || CHARACTERS[0];
       let portrait;
       try { portrait = scene?.portrait(character.id, color.id); } catch (error) { console.error('캐릭터 사진 생성 오류', error); }
-      const place = r.status === 'finished' ? `${r.rank}위` : '미완주';
-      const tied = r.overall && orderedResults.filter((row) => row.rank === r.rank).length > 1;
+      const place = placeLabel(r);
+      const tied = r.rank!=null && orderedResults.filter(row=>row.rank===r.rank).length>1;
       const score = room.scores?.find((row) => row.id === r.id)?.score || 0;
       const points = roundPoints(r, room.results.length);
-      const caption = r.overall ? `${r.score}점 · ${r.completed}회 완주` : room.settings.matchMode === 'series' ? `+${points}점 · 누적 ${score}점` : r.status === 'finished' ? `${Number(r.time).toFixed(2)}초` : '다음엔 꼭 완주!';
-      return `<article class="result-tile ${r.id === myId ? 'me' : ''} ${r.rank === 1 ? 'winner' : r.rank === 2 ? 'silver' : r.rank === 3 ? 'bronze' : ''}" role="listitem" aria-label="결과 공개 대기" data-index="${i}" style="--jelly-color:${color.hex};order:${orderedResults.length - i}"><div class="result-front" aria-hidden="true"><span class="tile-rank">${tied ? '공동 ' : ''}${place}</span>${r.id === myId ? '<span class="tile-me">나</span>' : ''}<div class="result-photo">${portrait ? `<img src="${portrait}" alt="${escapeHTML(character.name)} · ${escapeHTML(color.name)}" width="256" height="256">` : `<span class="portrait-fallback">${character.emoji}</span>`}</div><div class="tile-caption"><strong>${escapeHTML(r.name)}</strong><small>${caption}</small></div></div><div class="result-back" aria-hidden="true"><span>?</span><small>${tied ? '공동 ' : ''}${place}</small></div></article>`;
+      const series=room.settings.matchMode==='series', knockout=room.settings.matchMode==='elimination';
+      const value=series?(r.overall?r.score:score)+'점':knockout?(r.id===room.winnerId?'우승':r.qualified?'통과':'탈락'):room.rule==='survival'?(r.status==='survived'?'생존':Number(r.time||0).toFixed(1)+'초'):r.status==='finished'?Number(r.time).toFixed(2)+'초':'미완주';
+      const detail=series?(r.overall?r.completed+'회 완주':'이번 판 +'+points+'점'):knockout?(r.eliminationRound?r.eliminationRound+'라운드 탈락':room.isFinal?'결승':room.round+'라운드'):room.rule==='survival'?(r.status==='survived'?'끝까지 버텼어요':'떨어져서 탈락'):'완주 기록';
+      return `<article class="result-tile ${r.id === myId ? 'me' : ''} ${isSuccessful(r) && r.rank === 1 ? 'winner' : isSuccessful(r) && r.rank === 2 ? 'silver' : isSuccessful(r) && r.rank === 3 ? 'bronze' : ''}" role="listitem" aria-label="결과 공개 대기" data-index="${i}" style="--jelly-color:${color.hex};order:${orderedResults.length - i}"><div class="result-front" aria-hidden="true"><span class="tile-rank">${tied ? '공동 ' : ''}${place}</span>${r.id === myId ? '<span class="tile-me">나</span>' : ''}<div class="result-photo">${portrait ? `<img src="${portrait}" alt="${escapeHTML(character.name)} · ${escapeHTML(color.name)}" width="256" height="256">` : `<span class="portrait-fallback">${character.emoji}</span>`}</div><div class="tile-caption"><strong>${escapeHTML(r.name)}</strong><b class="result-value">${escapeHTML(value)}</b><small>${escapeHTML(detail)}</small></div></div><div class="result-back" aria-hidden="true"><span>?</span><small>${tied ? '공동 ' : ''}${place}</small></div></article>`;
     }).join('');
     $('#results-list').scrollTop = 0;
     resultsTimer = setInterval(updateResultReveal, 80);
@@ -445,14 +482,14 @@ function updateResultReveal() {
     const result = orderedResults[i], tile = tiles[i];
     tile.classList.add('revealed');
     tile.querySelector('.result-front').setAttribute('aria-hidden', 'false');
-    tile.setAttribute('aria-label', `${result.status === 'finished' ? `${result.rank}위` : '미완주'} ${result.name}${result.id === myId ? ', 나' : ''}`);
+    tile.setAttribute('aria-label', `${placeLabel(result)} ${result.name}, ${tile.querySelector('.result-value').textContent}${result.id === myId ? ', 나' : ''}`);
   }
   if (advanced) {
     const last = orderedResults[count - 1];
-    $('#result-subtitle').textContent = `${last.status === 'finished' ? `${last.rank}위` : '미완주'} · ${last.name}${last.id === myId ? ' (나)' : ''}`;
+    $('#result-subtitle').textContent = `${placeLabel(last)} · ${last.name}${last.id === myId ? ' (나)' : ''}`;
     const currentTile = tiles[count - 1];
-    $('#result-spotlight').classList.toggle('winner', last.rank === 1 && last.status === 'finished' && (!last.overall || last.score > 0));
-    $('#spotlight-person').innerHTML = '<b class="spot-place">' + escapeHTML(currentTile.querySelector('.tile-rank').textContent) + '</b>' + currentTile.querySelector('.result-photo').innerHTML + '<strong>' + escapeHTML(last.name) + '</strong><p>' + escapeHTML(currentTile.querySelector('.tile-caption small').textContent) + '</p>';
+    $('#result-spotlight').classList.toggle('winner', last.rank === 1 && isSuccessful(last) && (!last.overall || last.score > 0));
+    $('#spotlight-person').innerHTML = '<b class="spot-place">' + escapeHTML(currentTile.querySelector('.tile-rank').textContent) + '</b>' + currentTile.querySelector('.result-photo').innerHTML + '<strong>' + escapeHTML(last.name) + '</strong><p>' + escapeHTML(currentTile.querySelector('.result-value').textContent)+' · '+escapeHTML(currentTile.querySelector('.tile-caption small').textContent) + '</p>';
     shownResults = count;
   }
   const done = count === total;
@@ -460,31 +497,37 @@ function updateResultReveal() {
   $('#reveal-bar').style.width = `${total ? count / total * 100 : 100}%`;
   $('#skip-results').hidden = done;
   $('#return-lobby').disabled = !done || room.hostId !== myId;
-  const nextRound = room.settings.matchMode === 'series' && room.round < room.settings.rounds;
+  const nextRound = hasNextRound(room);
   $('#return-lobby').textContent = nextRound ? `${room.round + 1} 라운드 시작하기 →` : '대기실로 돌아가기 →';
   $('#results-help').textContent = !done ? '두근두근, 다음 젤리는 누구일까요?' : nextRound ? `점수가 누적됐어요. 방장이 다음 라운드를 시작할 수 있어요.` : room.hostId === myId ? '다른 맵에서 한 판 더 달려볼까요?' : '방장이 대기실로 돌아가면 함께 이동해요.';
   if (done) {
     clearInterval(resultsTimer);
-    const winners = orderedResults.filter((r) => r.rank === 1 && r.status === 'finished' && (!r.overall || r.score > 0));
+    const winners = orderedResults.filter(r => r.rank===1 && isSuccessful(r) && (!r.overall || r.score>0));
     const winner = winners[0];
     $('#result-title').textContent = winners.length > 1 ? `공동 우승! ${winner.name} 님 외 ${winners.length - 1}명` : winner ? `${winner.name} 님, ${winner.overall ? '최종 ' : nextRound ? `${room.round}라운드 ` : ''}우승!` : '다시 도전할 젤리, 모두 모여!';
-    $('#result-subtitle').textContent = winner ? '넘어져도 다시 달린 모든 젤리에게 박수!' : '오늘의 도전도 멋졌어요. 다음엔 결승선까지!';
+    $('#result-subtitle').textContent=winner?'함께한 모든 젤리에게 박수!':'완주자 없이 끝났어요. 다시 도전해요!';
+    if(room.settings.matchMode==='elimination') {
+      $('#result-title').textContent=room.matchOver?(room.winnerId?(room.standings.find(r=>r.id===room.winnerId)?.name+' 님, 최종 우승!'):'이번 경기에는 우승자가 없어요'):room.tieBreak?'결승 동률 · 한 번 더 겨뤄요!':room.results.filter(r=>r.qualified).length+'명, 다음 라운드 진출!';
+      $('#result-subtitle').textContent=room.matchOver?'다음 경기에는 모두 다시 함께해요.':room.tieBreak?'남은 참가자끼리 레이스 결승을 다시 진행해요.':room.rule==='survival'?'제한 시간까지 생존한 참가자는 모두 통과해요.':'완주 순위로 통과자가 정해졌어요.';
+      $('#results-help').textContent=nextRound?'탈락한 친구도 끝까지 관전할 수 있어요.':'방장이 대기실로 돌아가면 함께 이동해요.';
+    }
+    if(room.settings.matchMode==='single' && room.rule==='survival') $('#result-title').textContent=winners.length>1?winners.length+'명, 끝까지 생존!':winner?winner.name+' 님, 생존 성공!':'모두 탈락! 다음에 다시 도전해요.';
 
   }
 }
 $('#skip-results').addEventListener('click', () => { skipReveal = true; updateResultReveal(); });
 
 function resetInput() { keys.clear(); queuedActions.jump = false; queuedActions.dive = false; Object.assign(touch, { x: 0, z: 0, jump: false, dive: false }); $('#joystick-knob').style.transform = ''; if (room) send({ type: 'input', ...touch }); }
-const controlKeys = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'ShiftLeft', 'ShiftRight']);
-window.addEventListener('keydown', (event) => { if (room && ['countdown', 'playing'].includes(room.phase) && controlKeys.has(event.code) && !document.querySelector('dialog[open]') && !['INPUT','SELECT'].includes(event.target.tagName) && !(event.target.tagName === 'BUTTON' && event.code === 'Space') && !$('#game-screen').classList.contains('spectating')) { event.preventDefault(); keys.add(event.code); if (!event.repeat && event.code === 'Space') queuedActions.jump = true; if (!event.repeat && event.code.startsWith('Shift')) queuedActions.dive = true; } });
+const controlKeys = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'KeyE']);
+window.addEventListener('keydown', (event) => { if (room && ['countdown', 'playing'].includes(room.phase) && controlKeys.has(event.code) && !document.querySelector('dialog[open]') && !['INPUT','SELECT'].includes(event.target.tagName) && !(event.target.tagName === 'BUTTON' && event.code === 'Space') && !$('#game-screen').classList.contains('spectating')) { event.preventDefault(); keys.add(event.code); if (!event.repeat && event.code === 'Space') queuedActions.jump = true; if (!event.repeat && event.code === 'KeyE') queuedActions.dive = true; } });
 window.addEventListener('keyup', (event) => keys.delete(event.code));
 window.addEventListener('blur', resetInput);
-document.addEventListener('visibilitychange', () => { if (document.hidden) resetInput(); });
+document.addEventListener('visibilitychange', () => { if (document.hidden) resetInput(); else sound.unlock(); });
 setInterval(() => {
   if (!room || room.phase !== 'playing' || document.hidden || $('#game-screen').classList.contains('spectating')) return;
   const left = keys.has('KeyA') || keys.has('ArrowLeft'), right = keys.has('KeyD') || keys.has('ArrowRight');
   const forward = keys.has('KeyW') || keys.has('ArrowUp'), back = keys.has('KeyS') || keys.has('ArrowDown');
-  send({ type: 'input', x: Math.max(-1, Math.min(1, Number(left) - Number(right) + touch.x)), z: Math.max(-1, Math.min(1, Number(forward) - Number(back) + touch.z)), jump: keys.has('Space') || touch.jump || queuedActions.jump, dive: keys.has('ShiftLeft') || keys.has('ShiftRight') || touch.dive || queuedActions.dive });
+  send({ type: 'input', x: Math.max(-1, Math.min(1, Number(left) - Number(right) + touch.x)), z: Math.max(-1, Math.min(1, Number(forward) - Number(back) + touch.z)), jump: keys.has('Space') || touch.jump || queuedActions.jump, dive: keys.has('KeyE') || touch.dive || queuedActions.dive });
   queuedActions.jump = false; queuedActions.dive = false;
 }, 1000 / 30);
 setInterval(() => {

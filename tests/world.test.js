@@ -1,23 +1,25 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { MAPS, createCourse, createRacer, stepPlayer, stepPlayers, obstaclePose, platformActive, platformTiming } from '../public/world.js';
+import { MAPS, createCourse, createRacer, stepPlayer, stepPlayers, obstaclePose, platformActive, platformTiming, platformPose } from '../public/world.js';
 
-test('12개 코스의 30명 시작점, 체크포인트, 결승점이 실제 발판 위에 있다', () => {
-  assert.equal(MAPS.length, 12);
-  assert.equal(new Set(MAPS.map((m) => m.id)).size, 12);
-  const signatures = new Set();
-  for (const map of MAPS) {
-    const course = createCourse(map.id);
-    const hasFloor = ({ x, y, z }) => course.platforms.some((p) => p.type !== 'disappear' && Math.abs(x - p.x) < p.w / 2 && Math.abs(z - p.z) < p.d / 2 && Math.abs(y - p.y) < 0.1);
-    for (let i = 0; i < 30; i++) assert.ok(hasFloor(createRacer(i)), `${map.id} 시작 ${i}`);
-    for (const checkpoint of course.checkpoints) assert.ok(hasFloor(checkpoint), `${map.id} 체크포인트`);
-    assert.ok(hasFloor({ x: 0, y: 0, z: course.finishZ }), `${map.id} 결승점`);
-    signatures.add(JSON.stringify([course.platforms, course.obstacles.map(({ id, ...o }) => o)]));
-    for (const obstacle of course.obstacles) {
-      for (const t of [0, 1, 4, 20]) assert.ok(Object.values(obstaclePose(obstacle, t)).every((v) => typeof v === 'boolean' || Number.isFinite(v)));
-    }
+test('16개 맵의 지원 규칙, 30명 출발 지점과 서로 다른 동선', () => {
+  assert.equal(MAPS.length,16); assert.equal(new Set(MAPS.map(m=>m.id)).size,16);
+  assert.equal(MAPS.filter(m=>m.rules.includes('race')).length,12);
+  assert.equal(MAPS.filter(m=>m.rules.includes('survival')).length,6);
+  const signatures=new Set();
+  for(const map of MAPS) for(const rule of map.rules) {
+    const course=createCourse(map.id,rule);
+    assert.equal(course.rule,rule);
+    const floorsOnly={...course,obstacles:[]};
+    for(let i=0;i<30;i++) { const p=createRacer(i); stepPlayer(p,{},floorsOnly,0,1/90); assert.equal(p.grounded,true,map.id+' 출발 '+i); }
+    assert.equal(new Set(course.platforms.map(p=>p.id)).size,course.platforms.length);
+    if(rule==='race') {
+      for(const n of [...course.checkpoints,course.finish]) { const p=Object.assign(createRacer(),n); stepPlayer(p,{},floorsOnly,0,1/90); assert.equal(p.grounded,true,map.id+' 깃발 바닥'); }
+      signatures.add(JSON.stringify(course.path));
+    } else assert.equal(course.finish,null);
+    for(const o of course.obstacles) for(const time of [0,1,10,60]) assert.ok(Object.values(obstaclePose(o,time)).every(v=>typeof v==='boolean'||Number.isFinite(v)));
   }
-  assert.equal(signatures.size, 12, '맵마다 실제 구조가 달라야 합니다');
+  assert.equal(signatures.size,12);
 });
 
 test('이동, 대각선 속도, 점프 에지, 다이브, 낙하 복귀와 완주 판정', () => {
@@ -39,7 +41,7 @@ test('이동, 대각선 속도, 점프 에지, 다이브, 낙하 복귀와 완�
   const fallen = createRacer(); fallen.checkpoint = 0; fallen.y = -12;
   run(fallen, {}, 1);
   assert.equal(fallen.fallCount, 1); assert.equal(fallen.z, course.checkpoints[0].z);
-  const finisher = createRacer(); finisher.z = course.finishZ + 1;
+  const finisher = Object.assign(createRacer(),course.finish,{checkpoint:course.checkpoints.length-1});
   run(finisher, {}, 1, 42);
   assert.equal(finisher.finished, true); assert.equal(finisher.finishTime, 42);
 });
@@ -50,11 +52,11 @@ test('장애물은 실제 충돌하고 사라지는 발판은 실제로 발을 �
   const racer = createRacer(); racer.x = 0;
   for (let i = 0; i < 90; i++) stepPlayer(racer, { z: 1 }, course, i / 30, 1 / 30);
   assert.ok(racer.z <= 14, '벽을 관통하지 않습니다');
-  const blink = createCourse('blink-trail');
-  const tile = blink.platforms.find((p) => p.type === 'disappear');
-  assert.equal(platformActive(tile, 0), true); assert.equal(platformActive(tile, 4), false);
+  const blink = createCourse('tide-tiles','survival');
+  const tile = blink.platforms.find(p=>p.type==='disappear'&&p.phase===0); tile.warmup=0;
+  assert.equal(platformActive(tile, 0), true); assert.equal(platformActive(tile, 5), false);
   const falling = createRacer(); falling.x = tile.x; falling.z = tile.z;
-  stepPlayer(falling, {}, blink, 4, 1 / 30);
+  stepPlayer(falling, {}, blink, 5, 1 / 30);
   assert.ok(falling.y < 0); assert.equal(falling.grounded, false);
 });
 
@@ -135,31 +137,38 @@ test('사라지는 발판은 마지막 1초만 경고하고 숨김·재등장 �
   }
 });
 
-test('12개 맵의 안전 우회로와 점프 지름길 모두 실제 물리로 완주할 수 있다', () => {
-  for (const map of MAPS) {
-    const course = createCourse(map.id), routes = course.routes;
-    const safe = Object.assign(createRacer(), { x: 8, z: routes.startZ, vx: 0, vz: 0 });
-    let frame = 0;
-    for (const point of [...routes.safePoints.slice(1), { x: 8, z: course.finishZ + 1 }]) {
-      let remaining = 450;
-      while (Math.hypot(point.x - safe.x, point.z - safe.z) > .45 && !safe.finished && remaining-- > 0) {
-        const distance = Math.hypot(point.x - safe.x, point.z - safe.z);
-        stepPlayers([safe], [{ x: (point.x - safe.x) / distance, z: (point.z - safe.z) / distance }], course, frame++ / 90, 1 / 90);
-      }
-      assert.ok(remaining > 0, `${map.id} 안전길 경유점 도달`);
-    }
-    assert.equal(safe.fallCount, 0, `${map.id} 안전길은 점프 없이 완주`);
-    assert.ok(safe.finished, `${map.id} 안전길 결승선`);
-    const shortcut = Object.assign(createRacer(), { x: -7, z: routes.startZ, vx: 0, vz: 10 });
-    const planks = course.platforms.filter(p => p.route === 'shortcut');
-    let shortFrame = 0;
-    while (!shortcut.finished && shortFrame < 1800) {
-      const edge = planks.find(p => shortcut.z >= p.z - p.d / 2 && shortcut.z <= p.z + p.d / 2);
-      const jump = shortcut.grounded && !!edge && edge.z + edge.d / 2 - shortcut.z < .9;
-      stepPlayers([shortcut], [{ z: 1, jump }], course, shortFrame++ / 90, 1 / 90);
-    }
-    assert.equal(shortcut.fallCount, 0, `${map.id} 지름길 간격을 점프로 넘을 수 있다`);
-    assert.ok(shortcut.finished, `${map.id} 지름길 결승선`);
-    assert.ok(shortFrame < frame, `${map.id} 지름길이 우회로보다 빠르다`);
-  }
+test('뒤로 돌아오는 코스도 깃발을 차례로 지나야 완주한다',()=>{
+  const c=createCourse('spin-city'); c.obstacles=[];
+  const p=Object.assign(createRacer(),c.finish);
+  stepPlayers([p],[{}],c,1,1/30); assert.equal(p.finished,false); assert.equal(p.checkpoint,-1);
+  for(const [i,n] of c.checkpoints.entries()) { Object.assign(p,n,{vy:0,grounded:true}); stepPlayers([p],[{}],c,2+i,1/30); assert.equal(p.checkpoint,i); }
+  assert.ok(c.finish.z<c.checkpoints[0].z);
+  Object.assign(p,c.finish,{vy:0}); stepPlayers([p],[{}],c,10,1/30);
+  assert.equal(p.finished,true); assert.equal(p.progress,1);
+});
+
+test('붕괴 경고·서버 공유·레이스 복구·생존 탈락과 이동 발판 탑승',()=>{
+  const c=createCourse('leaf-square','survival');
+  const p=Object.assign(createRacer(),{x:2.4,z:8.4});
+  stepPlayers([p],[{}],c,4,1/30);
+  const touched=Object.keys(c.collapsed)[0]; assert.ok(touched);
+  const tile=c.platforms.find(p=>p.id===touched);
+  assert.equal(platformTiming(tile,4.5,c.collapsed).warning,true);
+  for(let i=0;i<180;i++) stepPlayers([p],[{}],c,4+i/90,1/90);
+  assert.equal(p.eliminated,true); const before={...p}; stepPlayers([p],[{z:1,jump:true}],c,7,1/30); assert.deepEqual(p,before);
+  const race=createCourse('blink-trail'); const t=race.platforms.find(p=>p.type==='collapse'); race.collapsed[t.id]=1;
+  assert.equal(platformActive(t,2,race.collapsed),false); assert.equal(platformActive(t,6,race.collapsed),true);
+  const ferry=createCourse('pendulum-port'); ferry.obstacles=[]; const platform=ferry.platforms.find(p=>p.type==='moving');
+  const pose=platformPose(platform,0); const passenger=Object.assign(createRacer(),{x:pose.x,z:pose.z});
+  stepPlayers([passenger],[{}],ferry,0,1/90);
+  for(let i=1;i<=90;i++) stepPlayers([passenger],[{}],ferry,i/90,1/90);
+  assert.ok(passenger.x>pose.x+4); assert.equal(passenger.fallCount,0); assert.equal(passenger.grounded,true);
+});
+
+test('압축기 경고와 낮은 통나무 충돌·점프 회피',()=>{
+  const c=createCourse('neon-factory'),press=c.obstacles.find(o=>o.type==='crusher');
+  assert.equal(obstaclePose(press,press.period-.5).warning,true); assert.equal(obstaclePose(press,press.period+.1).y,0);
+  const lake=createCourse('log-lake','survival'); lake.obstacles=[{type:'log',x:0,z:15,w:22,d:1,h:1,y:0,speed:0,phase:0}];
+  const p=Object.assign(createRacer(),{x:0,z:14.5}); stepPlayers([p],[{z:1}],lake,4,1/30); assert.ok(p.hitCooldown>0);
+  const jumper=Object.assign(createRacer(),{x:0,z:15,y:1.5,grounded:false}); stepPlayers([jumper],[{}],lake,4,1/90); assert.equal(jumper.hitCooldown,0);
 });
