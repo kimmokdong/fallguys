@@ -55,6 +55,7 @@ const ofType = (type) => (message) => message.type === type;
 test('12인 탈락전: 절반 통과, 탈락한 방장 재접속·관전·다음 판 시작, 마지막 한 명 우승',async t=>{
   const app=await setup(t),host=await client(app.url);
   host.send({type:'create',name:'관전 방장'}); const welcome=await host.wait(ofType('welcome'));
+  assert.match(welcome.code,/^[0-9]{6}$/);
   const guests=[];
   for(let i=0;i<11;i++) { const p=await client(app.url); p.send({type:'join',code:welcome.code,name:'탈락전'+i}); Object.assign(p,await p.wait(ofType('welcome'))); guests.push(p); }
   host.send({type:'settings',matchMode:'elimination',mapId:'jelly-garden',duration:60});

@@ -2,7 +2,7 @@ import http from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
 import { dirname, extname, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { randomBytes, randomUUID } from 'node:crypto';
+import { randomBytes, randomInt, randomUUID } from 'node:crypto';
 import { WebSocketServer, WebSocket } from 'ws';
 import { MAPS, createCourse, createRacer, stepPlayers } from './public/world.js';
 import { CHARACTERS, COLORS } from './public/catalog.js';
@@ -218,7 +218,7 @@ export function createGameServer({ reconnectGraceMs = 20_000, countdownMs = 6_00
           const player = makePlayer(message);
           if (!player) { error(socket, '이름을 입력해 주세요.'); return; }
           let code;
-          do { code = randomBytes(4).toString('hex').slice(0, 6).toUpperCase(); } while (rooms.has(code));
+          do { code = String(randomInt(100000, 1000000)); } while (rooms.has(code));
           const room = {
             code, hostId: player.id, phase: 'lobby', players: new Map([[player.id, player]]),
             settings: { mapId: 'random', characterMode: 'choice', duration: 180, matchMode: 'elimination', roundRule: 'race', rounds: 3 },

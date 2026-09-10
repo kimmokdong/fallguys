@@ -174,3 +174,11 @@ dialog{max-height:calc(100dvh - 2 * var(--screen-gap))}
 }
 @media(min-width:600px) and (max-width:850px){.camp-result-body{grid-template-columns:.5fr 1.5fr;gap:10px}.result-front{grid-template-columns:1fr;grid-template-rows:16px minmax(0,1fr) auto;padding:3px}.result-front .result-photo,.results-overlay.crowded .result-front .result-photo{grid-column:1;grid-row:2;max-height:65px}.result-front .tile-caption{grid-column:1;grid-row:3}.result-front .result-value{margin:2px 0}}
 @media(max-width:599px){.result-front .result-value{font-size:21px}.results-overlay.crowded .result-value{font-size:20px}.course-map{width:105px;bottom:165px;right:12px}.round-objective{top:85px;font-size:13px;max-width:94%;white-space:normal}.game-progress{top:137px}}
+
+/* TV에서도 읽기 쉬운 대기실 중앙 방 코드 */
+.room-heading{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);gap:20px}
+.room-heading .room-code-group{display:flex;flex-direction:column;gap:4px;justify-self:center}
+.room-heading .room-code-group small{font-size:16px;font-weight:700}
+.room-heading #room-code{font:900 clamp(64px,8vw,112px)/1 monospace;letter-spacing:.08em;padding:8px 18px 10px 26px;border-radius:14px;color:#fff4d5;background:#284e37;font-variant-numeric:tabular-nums;white-space:nowrap}
+.room-heading .room-actions{justify-self:end}
+@media(max-width:760px){.room-heading{grid-template-columns:1fr auto;gap:12px}.room-heading .room-code-group{grid-row:2;grid-column:1/-1}.room-heading #room-code{font-size:clamp(48px,12vw,80px)}.room-heading .room-actions{grid-column:2;grid-row:1}}
