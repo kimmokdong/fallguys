@@ -61,7 +61,7 @@ export function createRacer(index = 0) {
   return { x, y: 0, z, vx: 0, vy: 0, vz: 0, yaw: 0, grounded: true, checkpoint: -1, progress: 0, finished: false, eliminated: false, fallCount: 0, spawnX: x, spawnZ: z, jumpHeld: false, diveHeld: false, diveCooldown: 0, hitCooldown: 0, bounceCooldown: 0, bumpTime: 0, ghostTime: 0, coyoteTime: 0, jumpBuffer: 0, jumpCount: 0, landCount: 0 };
 }
 
-function supportAt(course, x, z, timeSeconds, ceiling = Infinity) {
+export function supportAt(course, x, z, timeSeconds, ceiling = Infinity) {
   let support = null;
   for (const platform of course.platforms) {
     const p = platformPose(platform, timeSeconds), cos = Math.cos(p.rotation || 0), sin = Math.sin(p.rotation || 0);

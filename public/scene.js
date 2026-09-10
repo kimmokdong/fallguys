@@ -1,6 +1,7 @@
 import * as THREE from 'three';
-import { createCourse, MAPS, obstaclePose, platformTiming, platformPose } from './world.js';
+import { createCourse, MAPS, obstaclePose, platformTiming, platformPose, supportAt } from './world.js';
 import { CHARACTERS, COLORS } from './catalog.js';
+import { AutoGraphics, GRAPHICS_LEVELS, renderPixelRatio } from './graphics.js';
 
 const WHITE = '#d9d2bc', INK = '#293b32', GOLD = '#c5a15a';
 const CAMP = { floor: '#638364', wood: '#785b40', edge: '#344839', trim: '#bba477', hazard: '#b85c37', helper: '#c5a15a', trees: '#3c654e' };
@@ -10,11 +11,11 @@ export class GameScene {
   constructor(canvas) {
     this.canvas = canvas;
     try {
-      this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: 'high-performance' });
+      this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: true, powerPreference: 'high-performance' });
     } catch (error) {
       throw new Error('3D 화면을 시작할 수 없습니다. 브라우저의 하드웨어 가속을 켜거나 최신 Chrome / Edge에서 열어 주세요.', { cause: error });
     }
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.7));
+    this.graphics = new AutoGraphics();
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -32,11 +33,19 @@ export class GameScene {
       cone: new THREE.ConeGeometry(1, 1, 12),
       torus: new THREE.TorusGeometry(1, 0.1, 6, 36),
     };
+    this.lowGeometries = {
+      sphere: new THREE.SphereGeometry(1, 8, 6), capsule: new THREE.CapsuleGeometry(.63, .72, 2, 8),
+      cylinder: new THREE.CylinderGeometry(1, 1, 1, 12), cone: new THREE.ConeGeometry(1, 1, 8),
+      torus: new THREE.TorusGeometry(1, .1, 4, 16),
+    };
+    this.geometries.shadow = new THREE.CircleGeometry(.76, 20);
+    this.contactMaterial = new THREE.MeshBasicMaterial({color: INK, transparent: true, opacity: .24, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1});
+    this.desiredCamera = new THREE.Vector3();
     this.scene.add(new THREE.HemisphereLight('#dce5da', '#55605b', 1.6));
     this.sun = new THREE.DirectionalLight('#f0dfc3', 2.25);
     this.sun.position.set(-12, 24, 13);
     this.sun.castShadow = true;
-    this.sun.shadow.mapSize.set(2048, 2048);
+    this.sun.shadow.mapSize.set(1024, 1024);
     Object.assign(this.sun.shadow.camera, { left: -25, right: 25, top: 30, bottom: -25, near: 1, far: 85 });
     this.sun.shadow.bias = -0.0003;
     this.sun.shadow.normalBias = 0.035;
@@ -56,12 +65,18 @@ export class GameScene {
     this.stateReceived = performance.now();
     this.previewCharacters = [];
     this.decorations = [];
+    this.active = true;
+    this.inView = true;
+    this.animate = this.animate.bind(this);
+    this.onVisibility = () => this.syncAnimation();
+    document.addEventListener('visibilitychange', this.onVisibility);
+    this.intersectionObserver = new IntersectionObserver(([entry]) => { this.inView = entry.isIntersecting; this.syncAnimation(); });
+    this.intersectionObserver.observe(canvas);
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(canvas);
     this.resize();
     this.setMode('preview');
-    this.animate = this.animate.bind(this);
-    this.frame = requestAnimationFrame(this.animate);
+    this.syncAnimation();
   }
 
   material(color, options = {}) {
@@ -79,7 +94,8 @@ export class GameScene {
     const mesh = new THREE.Mesh(this.geometries[shape], this.material(color, options));
     mesh.position.set(...position);
     mesh.scale.set(...scale);
-    mesh.castShadow = true;
+    mesh.castShadow = Math.min(...scale) >= .16 && !options.transparent;
+    mesh.userData.shape = shape;
     mesh.receiveShadow = true;
     parent.add(mesh);
     return mesh;
@@ -92,6 +108,25 @@ export class GameScene {
     const ring = this.mesh(parent, 'torus', color, position, scale);
     if (horizontal) ring.rotation.x = Math.PI / 2;
     return ring;
+  }
+
+  // 팔·다리처럼 움직이는 부품은 남기고 같은 부모 안의 고정 부품만 묶습니다.
+  batchLocalMeshes(parent, moving = []) {
+    const buckets = new Map();
+    for (const mesh of parent.children) {
+      if (!mesh.isMesh || mesh.isInstancedMesh || mesh.material.transparent || moving.includes(mesh)) continue;
+      const key = [mesh.geometry.uuid, mesh.material.uuid, mesh.castShadow, mesh.receiveShadow].join(':');
+      if (!buckets.has(key)) buckets.set(key, []);
+      buckets.get(key).push(mesh);
+    }
+    for (const meshes of buckets.values()) {
+      if (meshes.length < 2) continue;
+      const first = meshes[0], batch = new THREE.InstancedMesh(first.geometry, first.material, meshes.length);
+      batch.castShadow = first.castShadow; batch.receiveShadow = first.receiveShadow;
+      batch.userData.shape = first.userData.shape;
+      meshes.forEach((mesh, i) => { mesh.updateMatrix(); batch.setMatrixAt(i, mesh.matrix); mesh.removeFromParent(); });
+      batch.computeBoundingSphere(); parent.add(batch);
+    }
   }
 
   avatar(characterId, colorId) {
@@ -330,12 +365,20 @@ export class GameScene {
         cone('#ff9b51', [0, 1.2, 0.79], [0.08, 0.35, 0.08]).rotation.x = Math.PI / 2;
         break;
     }
-    group.userData = { body, leftArm, rightArm, leftFoot, rightFoot, characterId, colorId };
+    this.batchLocalMeshes(body, [leftArm, rightArm, leftFoot, rightFoot]);
+    const meshes = [];
+    body.traverse(object => {
+      if (!object.isMesh) return;
+      meshes.push(object);
+      if (![leftArm, rightArm, leftFoot, rightFoot].includes(object)) { object.updateMatrix(); object.matrixAutoUpdate = false; }
+    });
+    group.userData = { body, leftArm, rightArm, leftFoot, rightFoot, characterId, colorId, meshes };
     return group;
   }
 
   clearContent() {
     this.content.traverse(object => {
+      if (object.isInstancedMesh) object.dispose();
       if (object.isSprite) {
         object.material.map?.dispose();
         object.material.dispose();
@@ -384,13 +427,14 @@ export class GameScene {
       this.renderer.setRenderTarget(previous);
       this.renderer.setClearColor(clearColor, clearAlpha);
       target.dispose();
+      avatar.traverse(object => { if (object.isInstancedMesh) object.dispose(); });
     }
     const canvas = document.createElement('canvas'); canvas.width = canvas.height = 256;
     const context = canvas.getContext('2d'), image = context.createImageData(256, 256);
     for (let row = 0; row < 256; row++) image.data.set(pixels.subarray((255 - row) * 1024, (256 - row) * 1024), row * 1024);
     context.putImageData(image, 0, 0);
     const url = canvas.toDataURL('image/png');
-    if (this.portraits.size >= 60) this.portraits.delete(this.portraits.keys().next().value);
+    if (this.portraits.size >= 120) this.portraits.delete(this.portraits.keys().next().value);
     this.portraits.set(key, url);
     return url;
   }
@@ -400,6 +444,8 @@ export class GameScene {
       this.playerId = options.playerId ?? this.playerId;
       return;
     }
+    if (this.mode === mode && mode === 'preview' && !options.reset) return;
+    this.graphics.reset();
     this.clearContent();
     this.mode = mode;
     this.playerId = options.playerId;
@@ -427,8 +473,10 @@ export class GameScene {
   }
 
   setCharacter(characterId, colorId) {
+    const changed = (characterId && characterId !== this.characterId) || (colorId && colorId !== this.colorId);
     this.characterId = characterId || this.characterId;
     this.colorId = colorId || this.colorId;
+    if (!changed) return;
     if (this.mode === 'preview') {
       this.clearContent();
       this.buildPreview();
@@ -460,7 +508,7 @@ export class GameScene {
     const group = new THREE.Group();
     this.mesh(group, 'cylinder', CAMP.wood, [0, 1.5, 0], [0.3, 3, 0.3]);
     for (let i = 0; i < 3; i++) this.mesh(group, 'cone', CAMP.trees, [0, 2 + i * 1.1, 0], [2 - i * 0.4, 2.7, 2 - i * 0.4]);
-    group.position.set(x, y, z); group.scale.setScalar(scale); this.content.add(group);
+    group.position.set(x, y, z); group.scale.setScalar(scale); group.userData.batchStatic = true; this.content.add(group);
   }
 
   previewCamera() {
@@ -524,7 +572,7 @@ export class GameScene {
 
   arch(z, text, color, width = 10, y = 0, x = 0, rotation = 0) {
     const group = new THREE.Group();
-    group.position.set(x, y, z); group.rotation.y = rotation;
+    group.position.set(x, y, z); group.rotation.y = rotation; group.userData.batchStatic = true;
     for (const x of [-width / 2, width / 2]) {
       this.mesh(group, 'cylinder', color, [x, 2.2, 0], [0.2, 4.4, 0.2]);
       this.sphere(group, color, [x, 4.4, 0], [0.31, 0.31, 0.31]);
@@ -570,7 +618,11 @@ export class GameScene {
         this.box(group, CAMP.edge, [0, 0.055, side * (platform.d / 2 - 0.2)], [platform.w - 0.12, 0.035, 0.17]);
       }
       this.content.add(group);
-      this.platforms.push({ data: platform, group });
+      if (['moving', 'disappear', 'collapse', 'sink'].includes(platform.type)) {
+        this.batchLocalMeshes(group, [group.userData.warningBar]);
+        this.platforms.push({ data: platform, group });
+      }
+      else group.userData.batchStatic = true;
     });
     for (const obstacle of course.obstacles) {
       const group = new THREE.Group();
@@ -634,6 +686,7 @@ export class GameScene {
         const arrow=this.label('↟',CAMP.helper,INK,1.6); arrow.position.set(0,1.4,0); group.add(arrow);
       }
       this.content.add(group);
+      this.batchLocalMeshes(group);
       this.obstacles.push({ data: obstacle, group });
     }
     for (const [i,checkpoint] of course.checkpoints.entries()) {
@@ -667,6 +720,28 @@ export class GameScene {
     }
     this.confetti.visible = false;
     this.paintingCourse = false;
+    this.batchStaticMeshes();
+  }
+
+  // 같은 형태·재질의 정적 장식만 구역별로 묶습니다. 움직이는 발판과 경고는 그대로 둡니다.
+  batchStaticMeshes() {
+    this.content.updateMatrixWorld(true);
+    const batches = new Map();
+    for (const root of this.content.children.filter(item => item.userData.batchStatic)) root.traverse(mesh => {
+      if (!mesh.isMesh || mesh.isInstancedMesh || mesh.material.transparent) return;
+      const position = new THREE.Vector3().setFromMatrixPosition(mesh.matrixWorld);
+      const key = [Math.floor(position.x / 24), Math.floor(position.z / 24), mesh.geometry.uuid, mesh.material.uuid, mesh.castShadow, mesh.receiveShadow].join(':');
+      if (!batches.has(key)) batches.set(key, []);
+      batches.get(key).push(mesh);
+    });
+    for (const meshes of batches.values()) {
+      if (meshes.length < 2) continue;
+      const first = meshes[0], batch = new THREE.InstancedMesh(first.geometry, first.material, meshes.length);
+      batch.castShadow = first.castShadow; batch.receiveShadow = first.receiveShadow;
+      meshes.forEach((mesh, i) => { batch.setMatrixAt(i, mesh.matrixWorld); mesh.removeFromParent(); });
+      batch.computeBoundingSphere(); batch.matrixAutoUpdate = false;
+      this.content.add(batch);
+    }
   }
 
   setPlayers(rosterArray) {
@@ -675,17 +750,18 @@ export class GameScene {
     const ids = new Set(this.roster.map(player => player.id));
     for (const [id, player] of this.players) if (!ids.has(id)) {
       player.group.traverse(object => {
+        if (object.isInstancedMesh) object.dispose();
         if (object.isSprite) { object.material.map?.dispose(); object.material.dispose(); }
       });
-      this.content.remove(player.group);
+      this.content.remove(player.group, player.shadow);
       this.players.delete(id);
     }
     for (const player of this.roster) {
       const existing = this.players.get(player.id);
       if (existing && existing.character === player.character && existing.color === player.color && existing.name === player.name) continue;
       if (existing) {
-        existing.group.traverse(object => { if (object.isSprite) { object.material.map?.dispose(); object.material.dispose(); } });
-        this.content.remove(existing.group);
+        existing.group.traverse(object => { if (object.isInstancedMesh) object.dispose(); if (object.isSprite) { object.material.map?.dispose(); object.material.dispose(); } });
+        this.content.remove(existing.group, existing.shadow);
       }
       const group = this.avatar(player.character, player.color);
       const name = this.playerLabel(player.name + (player.id === this.playerId ? ' · 나' : ''), player.id === this.playerId);
@@ -693,7 +769,9 @@ export class GameScene {
       group.add(name);
       group.visible = false;
       this.content.add(group);
-      this.players.set(player.id, { ...player, group, label: name, current: null, target: existing?.target || null });
+      const shadow = new THREE.Mesh(this.geometries.shadow, this.contactMaterial);
+      shadow.rotation.x = -Math.PI / 2; shadow.visible = false; this.content.add(shadow);
+      this.players.set(player.id, { ...player, group, shadow, label: name, current: null, target: existing?.target || null });
     }
   }
 
@@ -701,7 +779,7 @@ export class GameScene {
     if (!state) return;
     if(this.course) this.course.collapsed = state.collapsed || {};
     const ids=new Set((state.players||[]).map(p=>p.id));
-    for(const [id,p] of this.players) if(!ids.has(id)) { p.group.visible=false; p.target=null; p.current=null; }
+    for(const [id,p] of this.players) if(!ids.has(id)) { p.group.visible=false; p.shadow.visible=false; p.target=null; p.current=null; }
     this.stateTime = Number.isFinite(state.time) ? state.time : this.stateTime;
     this.stateReceived = performance.now();
     for (const player of state.players || []) {
@@ -716,10 +794,37 @@ export class GameScene {
     }
   }
 
+  setActive(active) {
+    if (this.active === active) return;
+    this.active = active; this.syncAnimation();
+  }
+
+  syncAnimation() {
+    cancelAnimationFrame(this.frame); this.frame = null;
+    this.graphics.reset(); this.lastFrame = performance.now();
+    if (!this.destroyed && this.active && this.inView && !document.hidden) this.frame = requestAnimationFrame(this.animate);
+  }
+
+  applyGraphics() {
+    const size = GRAPHICS_LEVELS[this.graphics.level].shadowSize, enabled = size > 0;
+    if (this.renderer.shadowMap.enabled !== enabled) {
+      this.renderer.shadowMap.enabled = enabled;
+      for (const material of this.materials.values()) material.needsUpdate = true;
+    }
+    if (size && size !== this.sun.shadow.mapSize.x) {
+      this.sun.shadow.map?.dispose(); this.sun.shadow.map = null;
+      this.sun.shadow.mapSize.set(size, size);
+    }
+    this.resize();
+  }
+
   resize() {
     const { width, height } = this.canvas.getBoundingClientRect();
     if (!width || !height) return;
+    const ratio = renderPixelRatio(width, height, window.devicePixelRatio, this.graphics.level);
+    if (this.renderer.getPixelRatio() !== ratio) this.renderer.setPixelRatio(ratio);
     this.renderer.setSize(width, height, false);
+    this.graphics.reset();
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
     if (this.mode === 'preview') this.previewCamera();
@@ -728,8 +833,12 @@ export class GameScene {
   animate(now) {
     if (this.destroyed) return;
     this.frame = requestAnimationFrame(this.animate);
-    const dt = Math.min((now - this.lastFrame) / 1000, 0.06);
-    this.lastFrame = now;
+    const interval = this.mode === 'preview' ? 1000 / 30 : 1000 / 60;
+    const frameMs = now - this.lastFrame;
+    if (frameMs < interval - 1) return;
+    const dt = Math.min(frameMs / 1000, .06);
+    this.lastFrame = now - (frameMs % interval < 1 ? frameMs % interval : 0);
+    if (this.mode === 'race' && this.graphics.sample(frameMs)) this.applyGraphics();
     const t = now / 1000;
     if (this.mode === 'preview') {
       for (const item of this.previewCharacters) {
@@ -771,7 +880,7 @@ export class GameScene {
       }
       const alpha = 1 - Math.exp(-16 * dt);
       for (const player of this.players.values()) {
-        if (!player.target || !player.current) continue;
+        if (!player.target || !player.current || player.target.eliminated) { player.shadow.visible = false; continue; }
         const target = player.target, current = player.current;
         const extrapolate = !target.finished && !target.eliminated && !target.bumpTime && elapsed < 0.16 ? elapsed : 0;
         current.x += (target.x + (target.vx || 0) * extrapolate - current.x) * alpha;
@@ -782,6 +891,22 @@ export class GameScene {
         player.group.position.set(current.x, current.y, current.z);
         const rig = player.group.userData;
         rig.body.rotation.y = current.yaw;
+        const own = player.id === this.playerId || player.id === this.followId;
+        const distance = this.camera.position.distanceTo(player.group.position);
+        const threshold = GRAPHICS_LEVELS[this.graphics.level].detailDistance;
+        const far = !own && distance > threshold + (player.far ? -3 : 3);
+        if (far !== player.far) {
+          for (const mesh of rig.meshes) mesh.geometry = (far && this.lowGeometries[mesh.userData.shape]) || this.geometries[mesh.userData.shape];
+          player.far = far;
+        }
+        player.shadow.visible = !this.renderer.shadowMap.enabled;
+        if (player.shadow.visible) {
+          const ground = target.grounded ? { y: current.y } : own ? supportAt(this.course, current.x, current.z, serverTime, current.y + .1) : null;
+          player.shadow.visible = !!ground && current.y - ground.y < 10;
+          if (ground) { player.shadow.position.set(current.x, ground.y + .035, current.z); player.shadow.scale.setScalar(1 / (1 + Math.max(0, current.y - ground.y) * .12)); }
+        }
+        if (far && now - (player.poseAt || 0) < 100) continue;
+        player.poseAt = now;
         const speed = Math.hypot(target.vx || 0, target.vz || 0);
         const running = target.grounded && speed > 0.3;
         const stride = running ? Math.sin(t * 13 + current.z * 0.2) * Math.min(speed / 9, 0.65) : 0;
@@ -809,7 +934,7 @@ export class GameScene {
       } else if (local?.current) {
         const point = local.current;
         const y = Math.max(-0.5, point.y);
-        const desired = new THREE.Vector3(point.x, y + 18, point.z - 15);
+        const desired = this.desiredCamera.set(point.x, y + 18, point.z - 15);
         if (!this.cameraReady) { this.camera.position.copy(desired); this.cameraReady = true; }
         this.camera.position.lerp(desired, 1 - Math.exp(-5 * dt));
         this.camera.lookAt(point.x, y + .8, point.z + 1);
@@ -841,8 +966,11 @@ export class GameScene {
     this.destroyed = true;
     cancelAnimationFrame(this.frame);
     this.resizeObserver.disconnect();
+    this.intersectionObserver.disconnect();
+    document.removeEventListener('visibilitychange', this.onVisibility);
     this.clearContent();
-    for (const geometry of Object.values(this.geometries)) geometry.dispose();
+    for (const geometry of [...Object.values(this.geometries), ...Object.values(this.lowGeometries)]) geometry.dispose();
+    this.contactMaterial.dispose();
     for (const material of this.materials.values()) material.dispose();
     this.renderer.dispose();
   }
