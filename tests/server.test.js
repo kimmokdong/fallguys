@@ -441,3 +441,29 @@ test('한 틱 안에서 눌렀다 뗀 점프도 한 번 실행하고 계속 누�
   assert.equal(player.racer.jumpCount, 2);
   assert.equal(player.racer.y, 0);
 });
+
+test('서버의 다음 레이스는 누적 하위권·직전 최하위 통과자를 앞줄에 배치한다',async t=>{
+ for(const mode of ['series','elimination']) {
+  const app=await setup(t),host=await client(app.url);
+  host.send({type:'create',name:'출발 배치 검증'});const welcome=await host.wait(ofType('welcome'));
+  const guests=[],total=mode==='series'?7:14;
+  for(let i=1;i<total;i++){const p=await client(app.url);p.send({type:'join',code:welcome.code,name:'참가자'+i});await p.wait(ofType('welcome'));guests.push(p);}
+  host.send({type:'settings',matchMode:mode,mapId:'jelly-garden'});
+  await host.wait(roomWhere(r=>r.settings.matchMode===mode&&r.settings.mapId==='jelly-garden'));
+  await prepareRoom(guests,host,total);host.send({type:'start'});
+  await host.wait(roomWhere(r=>r.phase==='playing'));
+  const room=app.rooms.get(welcome.code),original=[...room.players.values()];
+  assert.equal(new Set(original.map(p=>p.racer.spawnX+':'+p.racer.spawnZ)).size,total);
+  original.slice(0,7).forEach((p,i)=>Object.assign(p.racer,{finished:true,finishTime:10+i}));
+  await host.wait(roomWhere(r=>r.phase==='results'&&r.round===1));
+  // 탈락전의 순위 기준을 검증하기 위해 다음 레이스 라운드로 진행합니다.
+  if(mode==='elimination')room.round=2;
+  host.send({type:'next'});const nextRound=mode==='series'?2:3;
+  await host.wait(roomWhere(r=>r.phase==='playing'&&r.round===nextRound));
+  assert.equal(room.rule,'race');
+  assert.equal(original[6].racer.spawnZ,4.1,'7명 중 하위 1명이 가장 앞줄');
+  original.slice(0,6).forEach(p=>assert.equal(p.racer.spawnZ,2));
+  assert.deepEqual(room.roundPlayers.map(p=>p.id),original.slice(0,7).map(p=>p.id),'경기 명단 순서는 보존');
+  if(mode==='elimination')original.slice(7).forEach(p=>assert.equal(p.racer,null));
+ }
+});

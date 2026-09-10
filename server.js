@@ -6,7 +6,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { WebSocketServer, WebSocket } from 'ws';
 import { MAPS, createCourse, createRacer, stepPlayers } from './public/world.js';
 import { CHARACTERS, COLORS } from './public/catalog.js';
-import { roundResults, hasNextRound } from './public/match.js';
+import { roundResults, hasNextRound, startingSlots } from './public/match.js';
 import { addRoundScores } from './public/results.js';
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
@@ -186,11 +186,12 @@ export function createGameServer({ reconnectGraceMs = 20_000, countdownMs = 6_00
     room.mapId=pool[Math.floor(Math.random()*pool.length)].id;
     room.playedMaps.push(room.mapId); room.course=createCourse(room.mapId,room.rule);
     room.quota=knockout?(room.isFinal?1:Math.ceil(participants.length/2)):participants.length;
+    const slots=startingSlots(participants,{mode:room.settings.matchMode,rule:room.rule,round:room.round,scores:room.scores,results:room.results});
     room.phase='countdown'; room.startsAt=now+countdownMs; room.endsAt=room.startsAt+room.settings.duration*1000; room.resultsAt=null; room.results=[];
     room.tieBreak=false;
     if(room.settings.characterMode==='random' && (!knockout || room.round===1)) assignCharacters(room);
     for(const p of room.players.values()) { p.racer=null; p.input={...EMPTY_INPUT}; p.pendingJump=false; p.pendingDive=false; }
-    participants.forEach((p,i)=>{ p.racer=createRacer(i); p.withdrawn=false; });
+    participants.forEach(p=>{ p.racer=createRacer(slots.get(p.id)); p.withdrawn=false; });
     room.roundPlayers=participants;
     announce(room); broadcast(room,state(room,now));
   }

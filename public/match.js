@@ -20,3 +20,31 @@ export function roundResults(players, { rule = 'race', mode = 'single', final = 
 export const hasNextRound = room => room.settings.matchMode==='series' ? room.round<room.settings.rounds : room.settings.matchMode==='elimination' && !room.matchOver;
 export const isSuccessful = row => ['finished','survived','winner'].includes(row.status);
 export const placeLabel = row => row.status==='dnf' ? '미완주' : row.status==='eliminated' && row.rank==null ? '탈락' : `${row.rank}위`;
+
+// 선수 명단 순서는 보존하고 출발 슬롯만 배정합니다. z가 큰 줄이 앞줄입니다.
+export function startingSlots(players, { mode, rule, round, scores = [], results = [] }, random = Math.random) {
+  const shuffle = values => {
+    for (let i = values.length - 1; i > 0; i--) {
+      const j = Math.floor(random() * (i + 1));
+      [values[i], values[j]] = [values[j], values[i]];
+    }
+    return values;
+  };
+  // 먼저 섞은 뒤 안정 정렬하므로 동점자는 입장 순서와 무관하게 추첨됩니다.
+  const ordered = shuffle([...players]);
+  if (round > 1 && rule === 'race') {
+    if (mode === 'series') {
+      const points = new Map(scores.map(row => [row.id, row.score]));
+      ordered.sort((a, b) => (points.get(a.id) ?? 0) - (points.get(b.id) ?? 0));
+    } else if (mode === 'elimination') {
+      const ranks = new Map(results.map(row => [row.id, row.rank]));
+      ordered.sort((a, b) => (ranks.get(b.id) ?? 0) - (ranks.get(a.id) ?? 0));
+    }
+  }
+  const slots = [];
+  for (let row = Math.ceil(players.length / 6) - 1; row >= 0; row--) {
+    const count = Math.min(6, players.length - row * 6);
+    slots.push(...shuffle(Array.from({ length: count }, (_, column) => row * 6 + column)));
+  }
+  return new Map(ordered.map((player, i) => [player.id, slots[i]]));
+}
