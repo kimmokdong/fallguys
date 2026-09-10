@@ -182,3 +182,9 @@ dialog{max-height:calc(100dvh - 2 * var(--screen-gap))}
 .room-heading #room-code{font:900 clamp(64px,8vw,112px)/1 monospace;letter-spacing:.08em;padding:8px 18px 10px 26px;border-radius:14px;color:#fff4d5;background:#284e37;font-variant-numeric:tabular-nums;white-space:nowrap}
 .room-heading .room-actions{justify-self:end}
 @media(max-width:760px){.room-heading{grid-template-columns:1fr auto;gap:12px}.room-heading .room-code-group{grid-row:2;grid-column:1/-1}.room-heading #room-code{font-size:clamp(48px,12vw,80px)}.room-heading .room-actions{grid-column:2;grid-row:1}}
+
+/* 기록은 카드 전체 폭을 사용하고 카드 폭에 맞춰 크기를 조절합니다. */
+.result-front{container-type:inline-size;grid-template-columns:minmax(0,1fr);grid-template-rows:18px minmax(0,1fr) auto;row-gap:2px}
+.result-front .result-photo,.results-overlay.crowded .result-front .result-photo{grid-column:1;grid-row:2;max-height:85px}
+.result-front .tile-caption{grid-column:1;grid-row:3}
+.result-front .result-value,.results-overlay.crowded .result-front .result-value{font-size:clamp(12px,19cqi,29px);letter-spacing:-.5px;margin:1px 0;font-variant-numeric:tabular-nums}
