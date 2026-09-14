@@ -4,6 +4,8 @@ import { GameScene } from './scene.js';
 import { resultOrder, revealedCount, roundPoints } from './results.js';
 import { hasNextRound, isSuccessful, placeLabel } from './match.js';
 import { GameAudio } from './audio.js';
+import { StateDecoder } from './network.js';
+let network=new StateDecoder(),lastView='',lastInput='',lastInputAt=0;
 
 const $ = (selector) => document.querySelector(selector);
 const escapeHTML = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -104,7 +106,8 @@ function connect() {
   if (socket?.readyState === WebSocket.OPEN) return Promise.resolve();
   if (connecting) return connecting;
   connecting = new Promise((resolve, reject) => {
-    socket = new WebSocket(`${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}`);
+    socket = new WebSocket(`${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/?v=2`);
+    socket.binaryType='arraybuffer'; network=new StateDecoder(); lastView=''; lastInput='';
     const timeout = setTimeout(() => { socket.close(); reject(new Error('서버 연결 시간이 초과됐어요. 서버 실행 상태를 확인해주세요.')); }, 8000);
     socket.addEventListener('open', () => {
       clearTimeout(timeout); setConnection(true); reconnectAttempts = 0; connecting = null; resolve();
@@ -112,7 +115,7 @@ function connect() {
       if (savedSession?.token && savedSession.code === code) { reconnectPending = true; send({ type: 'join', code, name: profile.name || '젤리', token: savedSession.token, character: profile.character, color: profile.color }); }
     });
     socket.addEventListener('message', (event) => {
-      try { onMessage(JSON.parse(event.data)); } catch (error) { console.error('메시지 처리 오류', error); }
+      try { const message=typeof event.data==='string'?JSON.parse(event.data):network.decode(event.data); if(message) onMessage(message); } catch (error) { console.error('메시지 처리 오류', error); }
     });
     socket.addEventListener('close', (event) => {
       sound.setMusicPlaying(false);
@@ -130,7 +133,9 @@ function connect() {
 
 function send(data) {
   if (socket?.readyState !== WebSocket.OPEN) { if (data.type !== 'input') toast('서버 연결을 기다려주세요.'); return false; }
-  socket.send(JSON.stringify(data)); return true;
+  const payload=JSON.stringify(data),now=performance.now();
+  if(data.type==='input') { if(payload===lastInput && now-lastInputAt<250) return true;lastInput=payload;lastInputAt=now; }
+  socket.send(payload); return true;
 }
 
 function onMessage(message) {
@@ -149,7 +154,9 @@ function onMessage(message) {
   } else if (message.type === 'room') {
     const previousRoom = room;
     room = message.room;
+    network.setRoom(room);
     renderRoom(previousRoom);
+    syncView();
   } else if (message.type === 'state') {
     latestState = message; stateAt = performance.now(); scene?.updateState(message); renderRaceState();
   } else if (message.type === 'error') {
@@ -459,6 +466,11 @@ function renderRaceState() {
   updateSpectator(me,racers);
 }
 
+function syncView() {
+  if(!room || socket?.readyState!==WebSocket.OPEN) return;
+  const data={type:'view',watchId:watchId||null,hidden:document.hidden},key=JSON.stringify(data);
+  if(key!==lastView) { lastView=key;send(data); }
+}
 function updateSpectator(me,racers) {
   const eliminated=room.players.find(p=>p.id===myId)?.eliminated || me?.eliminated || !me;
   const active=!!(eliminated || me?.finished) && ['playing','countdown'].includes(room.phase);
@@ -476,6 +488,7 @@ function updateSpectator(me,racers) {
   $('#spectator-self').hidden=eliminated;
   $('#spectator-prev').disabled=$('#spectator-next').disabled=candidates.length<2;
   scene?.followPlayer(watchId);
+  syncView();
 }
 $('#spectator-select').addEventListener('change', event => { watchId = event.target.value; renderRaceState(); });
 $('#spectator-self').addEventListener('click', () => { watchId = myId; renderRaceState(); });
@@ -575,7 +588,7 @@ const controlKeys = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDo
 window.addEventListener('keydown', (event) => { if (room && ['countdown', 'playing'].includes(room.phase) && controlKeys.has(event.code) && !document.querySelector('dialog[open]') && !['INPUT','SELECT'].includes(event.target.tagName) && !(event.target.tagName === 'BUTTON' && event.code === 'Space') && !$('#game-screen').classList.contains('spectating')) { event.preventDefault(); keys.add(event.code); if (!event.repeat && event.code === 'Space') queuedActions.jump = true; if (!event.repeat && event.code === 'KeyE') queuedActions.dive = true; } });
 window.addEventListener('keyup', (event) => keys.delete(event.code));
 window.addEventListener('blur', resetInput);
-document.addEventListener('visibilitychange', () => { sound.syncMusic(); if (document.hidden) resetInput(); else sound.unlock(); });
+document.addEventListener('visibilitychange', () => { sound.syncMusic(); syncView(); if (document.hidden) resetInput(); else sound.unlock(); });
 setInterval(() => {
   if (!room || room.phase !== 'playing' || document.hidden || $('#game-screen').classList.contains('spectating')) return;
   const left = keys.has('KeyA') || keys.has('ArrowLeft'), right = keys.has('KeyD') || keys.has('ArrowRight');

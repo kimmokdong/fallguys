@@ -5,6 +5,7 @@ import { WebSocket } from 'ws';
 import { createGameServer } from '../server.js';
 import { MAPS } from '../public/world.js';
 import { CHARACTERS, COLORS } from '../public/catalog.js';
+import { StateDecoder } from '../public/network.js';
 
 async function setup(t, options = {}) {
   const app = createGameServer({ countdownMs: 20, reconnectGraceMs: 1_000, ...options });
@@ -14,13 +15,17 @@ async function setup(t, options = {}) {
   return { ...app, url: `http://127.0.0.1:${app.server.address().port}` };
 }
 
-async function client(url) {
-  const socket = new WebSocket(url.replace('http:', 'ws:'));
+async function client(url, compact=true) {
+  const socket = new WebSocket(url.replace('http:', 'ws:')+(compact?'/?v=2':''));
+  const decoder=new StateDecoder();
   const messages = [];
   const waiters = new Set();
   socket.on('error', () => {});
-  socket.on('message', (raw) => {
-    messages.push(JSON.parse(raw));
+  socket.on('message', (raw,isBinary) => {
+    const message=isBinary?decoder.decode(raw):JSON.parse(raw);
+    if(!message) return;
+    if(message.type==='room') decoder.setRoom(message.room);
+    messages.push(message);
     for (const check of [...waiters]) check();
   });
   await once(socket, 'open');
@@ -467,4 +472,14 @@ test('서버의 다음 레이스는 누적 하위권·직전 최하위 통과자
   assert.deepEqual(room.roundPlayers.map(p=>p.id),original.slice(0,7).map(p=>p.id),'경기 명단 순서는 보존');
   if(mode==='elimination')original.slice(7).forEach(p=>assert.equal(p.racer,null));
  }
+});
+
+test('새 통신과 이전 통신의 혼합 접속·관전 대상·탭 복귀를 지원한다',async t=>{
+ const app=await setup(t),host=await client(app.url),guest=await client(app.url,false);host.send({type:'create',name:'새 화면'});const w=await host.wait(ofType('welcome'));
+ guest.send({type:'join',code:w.code,name:'이전 화면'});const g=await guest.wait(ofType('welcome'));host.send({type:'settings',matchMode:'single',mapId:'jelly-garden'});await host.wait(roomWhere(r=>r.settings.matchMode==='single'));await prepareRoom([guest],host,2);host.send({type:'start'});await host.wait(roomWhere(r=>r.phase==='playing'));
+ const room=app.rooms.get(w.code);const legacy=await guest.wait(ofType('state'));assert.equal(legacy.players.length,2);assert.ok('spawnX' in legacy.players[0]);
+ host.send({type:'view',watchId:g.id,hidden:true});await new Promise(r=>setTimeout(r,30));assert.equal(room.players.get(w.id).socket.view.watchId,null,'경기 중에는 임의의 타인 중심 시야를 요청할 수 없다');
+ Object.assign(room.players.get(w.id).racer,{finished:true,finishTime:1});await host.wait(m=>m.type==='state'&&m.players.find(p=>p.id===w.id)?.finished);
+ host.send({type:'view',watchId:g.id,hidden:false});await new Promise(r=>setTimeout(r,30));assert.equal(room.players.get(w.id).socket.view.watchId,g.id);
+ assert.ok((await host.wait(m=>m.type==='state'&&m.players.find(p=>p.id===w.id)?.finished)).players.some(p=>p.id===g.id));
 });

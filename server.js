@@ -1,5 +1,5 @@
 import http from 'node:http';
-import { readFile, stat } from 'node:fs/promises';
+import { stat } from 'node:fs/promises';
 import { dirname, extname, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomBytes, randomInt, randomUUID } from 'node:crypto';
@@ -8,6 +8,8 @@ import { MAPS, createCourse, createRacer, stepPlayers } from './public/world.js'
 import { CHARACTERS, COLORS } from './public/catalog.js';
 import { roundResults, hasNextRound, startingSlots } from './public/match.js';
 import { addRoundScores } from './public/results.js';
+import { StateEncoder } from './public/network.js';
+import { serveAsset } from './http-assets.js';
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const PUBLIC = resolve(ROOT, 'public');
@@ -40,22 +42,7 @@ export function createGameServer({ reconnectGraceMs = 20_000, countdownMs = 6_00
       const info = await stat(path);
       if (!info.isFile()) throw new Error('not found');
       const musicHash = pathname.match(/^\/music\/[a-z0-9-]+\.([a-f0-9]{12})\.mp3$/)?.[1];
-      if (musicHash) {
-        const etag = `"${musicHash}"`;
-        res.setHeader('ETag', etag);
-        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-        if (req.headers['if-none-match']?.split(',').some(value => value.trim().replace(/^W\//, '') === etag || value.trim() === '*')) {
-          res.writeHead(304).end(); return;
-        }
-      }
-      res.writeHead(200, {
-        'Content-Type': MIME[extname(path)] || 'application/octet-stream',
-        'Content-Length': info.size,
-        'X-Content-Type-Options': 'nosniff',
-        // 내용 해시가 붙은 배포 음원만 오래 저장하고, 화면·게임 코드는 항상 갱신합니다.
-        'Cache-Control': musicHash ? 'public, max-age=31536000, immutable' : 'no-cache',
-      });
-      res.end(req.method === 'HEAD' ? undefined : await readFile(path));
+      await serveAsset(req,res,path,info,MIME[extname(path)] || 'application/octet-stream',musicHash);
     } catch {
       if (!res.headersSent) res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
       res.end('찾을 수 없는 페이지입니다.');
@@ -64,15 +51,18 @@ export function createGameServer({ reconnectGraceMs = 20_000, countdownMs = 6_00
   const wss = new WebSocketServer({ server, maxPayload: 2_048 });
 
   function send(socket, data) {
-    if (socket?.readyState === WebSocket.OPEN && socket.bufferedAmount < 1_000_000) socket.send(JSON.stringify(data));
+    if(socket?.readyState!==WebSocket.OPEN) return;
+    if(socket.bufferedAmount>=1_000_000) { socket.close(1013,'Reconnect to sync'); return; }
+    socket.send(typeof data==='string'?data:JSON.stringify(data));
   }
   function error(socket, message) { send(socket, { type: 'error', message }); }
   function broadcast(room, data) {
-    for (const player of room.players.values()) send(player.socket, data);
+    const payload=JSON.stringify(data);
+    for (const player of room.players.values()) send(player.socket, payload);
   }
   function publicPlayer(player) {
     return {
-      id: player.id, name: player.name, character: player.character, color: player.color,
+      id: player.id, netId: player.netId, name: player.name, character: player.character, color: player.color,
       connected: Boolean(player.socket), finished: player.racer?.finished || false,
       eliminated: Boolean(player.eliminated), participating: Boolean(player.racer),
       fallCount: player.racer?.fallCount || 0, ready: Boolean(player.ready), choosing: Boolean(player.choosing),
@@ -90,9 +80,19 @@ export function createGameServer({ reconnectGraceMs = 20_000, countdownMs = 6_00
   function announce(room) { broadcast(room, { type: 'room', room: roomSnapshot(room) }); }
   function state(room, now = Date.now()) {
     return {
-      type: 'state', collapsed: room.course?.collapsed || {}, time: Math.max(0, (now - room.startsAt) / 1_000),
-      players: [...room.players.values()].filter((p) => p.racer).map((p) => ({ id: p.id, ...p.racer })),
+      type: 'state', epoch: room.startsAt>>>0, collapsed: room.course?.collapsed || {}, time: Math.max(0, (now - room.startsAt) / 1_000),
+      players: [...room.players.values()].filter((p) => p.racer).map((p) => ({ id: p.id, netId: p.netId, ...p.racer })),
     };
+  }
+  function sendState(socket, room, snapshot, full=false) {
+    if(socket?.readyState!==WebSocket.OPEN || socket.bufferedAmount>128_000) return;
+    if(!socket.encoder) { send(socket,snapshot); return; }
+    const payload=socket.encoder.encode(snapshot,socket.view?.watchId||socket.player.id,{full,hidden:socket.view?.hidden});
+    if(payload) socket.send(payload);
+  }
+  function broadcastState(room, now=Date.now(), full=false) {
+    const snapshot=state(room,now);
+    for(const p of room.players.values()) sendState(p.socket,room,snapshot,full);
   }
   function removePlayer(room, player) {
     clearTimeout(player.disconnectTimer);
@@ -122,13 +122,13 @@ export function createGameServer({ reconnectGraceMs = 20_000, countdownMs = 6_00
     socket.room = room;
     send(socket, { type: 'welcome', id: player.id, token: player.token, code: room.code });
     announce(room);
-    if (room.phase !== 'lobby') send(socket, state(room));
+    if (room.phase !== 'lobby') sendState(socket,room,state(room),true);
   }
   function makePlayer(message, randomCharacter = false) {
     const name = typeof message.name === 'string' ? [...message.name.trim().replace(/[\u0000-\u001f\u007f]/g, '')].slice(0, 16).join('') : '';
     if (!name) return null;
     return {
-      id: randomUUID(), token: randomBytes(24).toString('hex'), name,
+      id: randomUUID(), netId: 0, token: randomBytes(24).toString('hex'), name,
       character: randomCharacter ? CHARACTERS[Math.floor(Math.random() * CHARACTERS.length)].id : (validCharacter(message.character) ? message.character : CHARACTERS[0].id),
       color: validColor(message.color) ? message.color : COLORS[0].id,
       socket: null, input: { ...EMPTY_INPUT }, racer: null, ready: false,
@@ -168,7 +168,7 @@ export function createGameServer({ reconnectGraceMs = 20_000, countdownMs = 6_00
       }
     } else room.scores=addRoundScores(room.scores,room.results);
     room.phase='results'; room.resultsAt=Date.now();
-    broadcast(room,state(room)); announce(room);
+    broadcastState(room,Date.now(),true); announce(room);
   }
 
   function startRound(room, now) {
@@ -193,10 +193,11 @@ export function createGameServer({ reconnectGraceMs = 20_000, countdownMs = 6_00
     for(const p of room.players.values()) { p.racer=null; p.input={...EMPTY_INPUT}; p.pendingJump=false; p.pendingDive=false; }
     participants.forEach(p=>{ p.racer=createRacer(slots.get(p.id)); p.withdrawn=false; });
     room.roundPlayers=participants;
-    announce(room); broadcast(room,state(room,now));
+    announce(room); broadcastState(room,now,true);
   }
 
-  wss.on('connection', (socket) => {
+  wss.on('connection', (socket,request) => {
+    socket.encoder=new URL(request.url,'http://localhost').searchParams.get('v')==='2'?new StateEncoder():null;
     socket.alive = true;
     socket.rateAt = Date.now();
     socket.rateCount = 0;
@@ -255,6 +256,7 @@ export function createGameServer({ reconnectGraceMs = 20_000, countdownMs = 6_00
           const free = CHARACTERS.filter((item) => !used.has(item.id));
           if (free.length) player.character = free[Math.floor(Math.random() * free.length)].id;
         }
+        player.netId=Array.from({length:30},(_,i)=>i).find(i=>![...room.players.values()].some(p=>p.netId===i));
         room.players.set(player.id, player);
         attach(socket, room, player);
         return;
@@ -264,6 +266,13 @@ export function createGameServer({ reconnectGraceMs = 20_000, countdownMs = 6_00
       if (!room || !player) {
         // 퇴장 요청 직후 도착한 이동 패킷은 조용히 버린다.
         if (message.type !== 'input') error(socket, '먼저 방을 만들거나 입장해 주세요.');
+        return;
+      }
+      if(message.type==='view') {
+        const spectator=player.eliminated || player.racer?.finished || player.racer?.eliminated;
+        const target=spectator && room.players.get(message.watchId);
+        socket.view={hidden:message.hidden===true,watchId:target?.racer && !target.racer.eliminated?target.id:null};
+        if(room.course && socket.encoder) sendState(socket,room,state(room),true);
         return;
       }
       if (message.type === 'leave') { removePlayer(room, player); send(socket, { type: 'left' }); return; }
@@ -393,7 +402,7 @@ export function createGameServer({ reconnectGraceMs = 20_000, countdownMs = 6_00
       const enough=room.settings.matchMode==='elimination' && room.rule==='race' && rows.filter(r=>r.status==='finished').length>=room.quota;
       const survivalDone=room.rule==='survival' && remaining.length<=(room.settings.matchMode==='elimination'?room.quota:1) && (room.roundPlayers.length>1 || remaining.length===0);
       if(now>=room.endsAt || !remaining.length || enough || survivalDone) endRound(room);
-      else { if(changed) announce(room); if(frame%2===0) broadcast(room,state(room,now)); }
+      else { if(changed) announce(room); if(frame%2===0) broadcastState(room,now); }
     }
   }, 1_000 / 30);
   ticker.unref();

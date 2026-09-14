@@ -784,7 +784,7 @@ export class GameScene {
     this.stateReceived = performance.now();
     for (const player of state.players || []) {
       const rendered = this.players.get(player.id);
-      if (!rendered) continue;
+      if (!rendered || rendered.target===player) continue;
       rendered.target = player;
       rendered.group.visible = !player.eliminated;
       if (!rendered.current || Math.abs(rendered.current.z - player.z) > 15 || Math.abs(rendered.current.y - player.y) > 12) {
@@ -882,7 +882,8 @@ export class GameScene {
       for (const player of this.players.values()) {
         if (!player.target || !player.current || player.target.eliminated) { player.shadow.visible = false; continue; }
         const target = player.target, current = player.current;
-        const extrapolate = !target.finished && !target.eliminated && !target.bumpTime && elapsed < 0.16 ? elapsed : 0;
+        const age=Math.max(0,serverTime-(target.sampleTime??this.stateTime));
+        const extrapolate = !target.finished && !target.eliminated && !target.bumpTime ? Math.min(age,.16) : 0;
         current.x += (target.x + (target.vx || 0) * extrapolate - current.x) * alpha;
         current.y += (target.y + (target.vy || 0) * extrapolate - current.y) * alpha;
         current.z += (target.z + (target.vz || 0) * extrapolate - current.z) * alpha;

@@ -142,7 +142,7 @@ test('압축 음원 해시·MIME·장기 캐시와 304 재검증, 원본 비공�
     assert.equal(Number(head.headers.get('content-length')), bytes.length);
     assert.equal((await head.arrayBuffer()).byteLength, 0);
   }
-  assert.ok(total < 8_500_000);
+  assert.ok(total < 4_250_000);
   assert.equal((await fetch(origin + '/app.js', { method: 'HEAD' })).headers.get('cache-control'), 'no-cache');
   assert.equal((await fetch(origin + '/Arcade%20Bounce.mp3')).status, 404);
 });

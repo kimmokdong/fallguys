@@ -1,9 +1,9 @@
 // 파일 내용의 해시가 바뀔 때만 새 음원을 받습니다. 원본은 프로젝트 루트에 보관합니다.
 export const MUSIC_TRACKS = [
-  '/music/arcade-bounce.175189590033.mp3',
-  '/music/party-game-blast.a9ea3503eee7.mp3',
-  '/music/party-game-blast-2.6a733d8bdd10.mp3',
-  '/music/party-game-groove.f5a0ad9cf627.mp3',
+  '/music/arcade-bounce.70bcc77dd3e9.mp3',
+  '/music/party-game-blast.948cda20b65e.mp3',
+  '/music/party-game-blast-2.caf0662e0951.mp3',
+  '/music/party-game-groove.4f4377753de7.mp3',
 ];
 
 export class GameMusic {
