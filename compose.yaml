@@ -1,0 +1,35 @@
+services:
+  game:
+    build: .
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 3000
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
+  proxy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - game
+    environment:
+      CAMP_DOMAIN: ${CAMP_DOMAIN:?Set CAMP_DOMAIN in .env}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
+volumes:
+  caddy_data:
+  caddy_config:
