@@ -1,6 +1,6 @@
-#!/bin/bash
+#!/bin/sh
 # Ubuntu 24.04 Lightsail 인스턴스의 첫 시작 때 실행합니다.
-set -euo pipefail
+set -eu
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get install -y ca-certificates curl

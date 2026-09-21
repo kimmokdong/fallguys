@@ -221,31 +221,46 @@ Render 배포 후 공개 파일이 로컬 구현과 일치하는 것을 확인�
 - 자동 테스트 47개 통과: 기존 30인 입장·충돌·점수전·탈락전·재접속을 새 통신 방식으로 검증했습니다. 변경분 유지·전체 복구·거리 제한·발판 삭제·잘못된 패킷·슬롯 재사용·이전 클라이언트 호환·관전 권한·압축/304/HEAD/음원 구간 요청을 추가 검증했습니다.
 - 실제 브라우저에서 새 방식으로 30명 대기실 → 경기 이동·점프 → 30명 결과 → 15명 다음 생존 라운드 전환과 브라우저 오류 0건을 확인했습니다. 실제 기기 30대의 장시간 플레이는 별도 확인 대상입니다.
 
-## AWS 이전 준비 (2026-09-21)
+## AWS 배포 완료 (2026-09-21)
 
-**승인된 구성: 서울 Lightsail 월 7달러 서버 1대.** 현재 무료 계정 플랜을 유지하며 크레딧을 먼저 사용합니다. 계정 콘솔에서 크레딧 100달러와 Lightsail 적용, 크레딧 만료일 2027-09-21을 확인했습니다. 무료 계정 플랜 자체의 종료일 2027-03-21과 크레딧 만료일은 다르며, 이후 계속 사용하려면 유료 계정 전환 여부를 별도로 확인합니다. 여러 프로젝트는 같은 서버의 1GB 메모리·CPU·2TB 송수신량을 공유하므로 모든 프로젝트를 월 7달러로 운영한다고 보장하지 않습니다. 서버는 아직 생성 전입니다.
+접속 주소: https://camp-jelly.43-200-53-244.nip.io/
 
-아직 AWS에 배포하지 않았습니다. 서울 리전의 Linux/Unix IPv4 1GB 플랜(월 7달러, 2TB 전송량)을 시작 구성으로 제안합니다. 30인 실서버 부하를 확인한 후 필요하면 2GB 플랜(월 12달러, 3TB)으로 조정합니다. 세금·도메인·추가 서비스는 별도이며 무료 체험은 계정 자격 확인 전에는 비용 계산에 포함하지 않습니다. 전송량은 송수신 합산으로 차감되며 초과 송신은 추가 과금됩니다.
+- 서울 리전 `ap-northeast-2a`, Lightsail `camp-jelly` 1대: Ubuntu 24.04 LTS, 2 vCPU, 1GB RAM, SSD 40GB, 월 7달러, 월 2TB 송수신량.
+- 고정 IPv4 `43.200.53.244`, 리소스 이름 `camp-jelly-ip`. 고정 IP는 서버에 연결되어 있습니다. 무료 nip.io 주소를 사용하므로 주소 해석은 해당 외부 서비스에 의존합니다. Render의 onrender.com 주소는 이전할 수 없습니다.
+- 무료 계정 플랜 유지. 계정 콘솔에서 100달러 크레딧과 Lightsail 적용, 크레딧 만료일 **2027-09-21**을 확인했습니다. 무료 계정 플랜 자체의 종료일 **2027-03-21**과 다릅니다. 계속 운영하려면 무료 플랜 종료 전에 계정 전환 여부를 검토해야 합니다. 이번 작업에서 유료 계정 전환은 하지 않았습니다.
+- 기본 월 7달러는 모든 비용의 상한이 아닙니다. 세금·추가 서비스·전송량 초과는 별도입니다. 여러 프로젝트는 메모리·CPU·전송량을 공유하며, 현재 이전한 프로젝트는 캠프 젤리 한 개입니다.
 
-게임 서버 1개와 Caddy HTTPS 프록시를 compose.yaml로 실행합니다. 게임의 3000번 포트는 외부에 게시하지 않고 프록시만 80/443번으로 공개합니다. 인증서는 볼륨에 보존하고 두 서비스는 재부팅 후 자동 시작하며 로그 보관 크기를 제한합니다. 48kbps 음원·전송 최적화는 그대로 사용합니다.
+### 운영 구성
 
-이전 순서:
-1. AWS 무료 계정에서 해당 서비스의 이용 가능 여부와 크레딧 적용, 사용할 도메인을 확인합니다. Render의 onrender.com 주소 자체는 AWS로 이전할 수 없으므로 새 주소를 사용합니다.
-2. 서울 리전에 Ubuntu LTS 인스턴스 1개와 연결된 고정 IP를 준비합니다. 방화벽은 HTTP/HTTPS만 전체 공개하고 SSH는 관리자 접근 범위로 제한합니다. 게임 포트 3000은 열지 않습니다.
-3. 인스턴스 생성의 Launch script에 lightsail-bootstrap.sh 내용을 넣습니다. 이 스크립트는 [Docker 공식 Ubuntu 설치 안내](https://docs.docker.com/engine/install/ubuntu/)에 따라 Docker Engine과 Compose 플러그인을 설치합니다. 비공개 저장소의 코드는 git archive로 내보내 전달하면 서버에 GitHub 토큰을 저장할 필요가 없습니다.
-4. 소유한 도메인의 A 레코드를 고정 IP로 연결합니다. IPv6를 사용하지 않으면 해당 이름에 잘못된 AAAA 레코드가 남아 있지 않은지 확인합니다. 프로젝트 폴더의 .env에 CAMP_DOMAIN=실제도메인을 기록합니다. 프로토콜이나 경로 없이 호스트 이름만 넣습니다.
-5. 아래 명령으로 설정·빌드를 확인하고 실행합니다. Dockerfile에 http-assets.js도 포함하여 최적화 이후의 시작 오류를 예방했습니다.
+`/opt/camp-jelly`에서 `compose.yaml`로 게임 서버 1개와 Caddy HTTPS 프록시를 실행합니다. 게임 포트 3000은 외부에 게시하지 않고 80/443만 전체 공개합니다. SSH는 Lightsail 브라우저 접속으로 제한했으며 배포에 사용한 CloudShell IP 허용은 제거했습니다. SSH 암호 접속은 비활성화되어 있습니다. 임시 SSH 인증서는 CloudShell에서만 사용하고 작업 종료 시 삭제합니다. 서버에는 GitHub 토큰이나 AWS 영구 액세스 키를 저장하지 않았습니다.
+
+Caddy 인증서는 Docker 볼륨에 보존되며 두 서비스는 재부팅 후 자동 시작합니다. 로그 보관 크기를 제한합니다. 48kbps 음원·바이너리 통신·정적 파일 압축과 캐시를 유지합니다. 소스 배포 기준은 `0e05f39`이며 이후 설치 스크립트의 POSIX 셸/LF 호환 보정도 서버에 적용했습니다.
+
+### 검증
+
+- 자동 테스트 **47개 통과**.
+- 실제 AWS HTTPS/WSS에서 30명 동시 입장·30종 랜덤 캐릭터·31번째 입장 거부·준비 확인·경기 시작·점프·모든 참가자의 상태 수신 통과. 테스트 방은 퇴장 처리했습니다. 테스트 PC에서 WebSocket ping 한 번은 8ms였으며 다른 기기의 지연을 보장하는 값은 아닙니다.
+- HTTPS 200, JavaScript Brotli 압축, ETag 304, 음원 Range 206/128바이트 및 1년 캐시 확인. Chrome 홈 화면과 3D 캐릭터 표시 정상, 확인 시 브라우저 오류·경고 없음.
+- 테스트 방 정리 후 컨테이너 메모리: 게임 약 47MiB, HTTPS 약 39MiB. 전체 서버 가용 메모리 약 456MiB. 이는 유휴 시점의 측정이며 30대 실제 기기의 장시간 성능 검증은 별도입니다.
+
+### 업데이트와 복구
+
+**GitHub push만으로 AWS가 자동 배포되지는 않습니다.** 현재는 검증한 코드를 전달한 뒤 아래 명령으로 반영합니다. 서버 재시작 때 진행 중인 방과 결과는 초기화되므로 수업 외 시간에 배포합니다. 기존 Render 리소스는 삭제하지 않았습니다.
+
+1. 로컬에서 `npm test`를 통과한 커밋을 `git archive --format=tar.gz --output=output/camp-jelly-aws.tar.gz HEAD`로 내보냅니다. 원본 음원·비밀 파일·node_modules는 포함하지 않습니다.
+2. AWS CloudShell에 업로드하고 Lightsail 임시 SSH 인증과 해당 CloudShell IPv4만 허용하여 서버로 전달합니다. AWS가 제공한 호스트 키를 검증하며 인증서 내용은 출력하지 않습니다. 배포 후 임시 IP 허용을 제거합니다.
+3. `/opt/camp-jelly`에 압축을 풀고 기존 `.env`의 `CAMP_DOMAIN=camp-jelly.43-200-53-244.nip.io`를 유지합니다.
 
 ~~~sh
-docker compose config --quiet
-docker compose build
-docker compose up -d
-docker compose ps
-docker compose logs --tail=50
+cd /opt/camp-jelly
+sudo docker compose config --quiet
+sudo docker compose up -d --build
+sudo docker compose ps
+sudo docker compose logs --tail=50
 ~~~
 
-HTTPS 접속·방 생성·초대 입장·30명 경기·관전·재접속과 전송량을 검증한 후 사용자에게 새 링크를 안내합니다. 기존 Render는 새 서버 검증 전 삭제하지 않습니다. 업데이트는 테스트를 통과한 코드를 전송하고 같은 빌드·실행 명령으로 반영합니다. 현재 단계에는 GitHub push에 따른 AWS 자동 배포가 연결되어 있지 않습니다.
+신규 서버 설치는 `lightsail-bootstrap.sh`를 사용합니다. Lightsail Launch script는 앞에 자체 `/bin/sh` 초기화 코드를 붙이므로 POSIX 문법과 LF 줄바꿈을 유지해야 합니다. `.gitattributes`에서 셸 파일의 LF를 고정했습니다. Dockerfile에는 서버가 사용하는 `http-assets.js`도 포함합니다.
 
-방과 결과는 서버 메모리에 있으므로 서버 교체·재시작 때 초기화됩니다. 게임을 여러 프로세스/인스턴스로 복제하지 않습니다. 과금 알림은 서버 비용과 초과 전송료를 확인하는 용도이며 자동 차단 장치가 아닙니다. 도메인과 계정 확인 뒤 HTTPS 발급 및 실제 컨테이너 검증을 진행합니다.
+방·경기는 메모리에 있으므로 게임 프로세스를 여러 개로 복제하지 않습니다. 과금 알림은 자동 과금 차단 장치가 아닙니다.
 
-요금 확인: [AWS 플랜](https://docs.aws.amazon.com/lightsail/latest/userguide/amazon-lightsail-bundles.html), [전송량 규칙](https://docs.aws.amazon.com/lightsail/latest/userguide/amazon-lightsail-faq-data-transfer-allowance.html). HTTPS 구성: [Caddy 공식 안내](https://caddyserver.com/docs/quick-starts/reverse-proxy).
+공식 안내: [Lightsail 요금제](https://docs.aws.amazon.com/lightsail/latest/userguide/amazon-lightsail-bundles.html), [전송량 규칙](https://docs.aws.amazon.com/lightsail/latest/userguide/amazon-lightsail-faq-data-transfer-allowance.html), [Docker Ubuntu 설치](https://docs.docker.com/engine/install/ubuntu/), [Caddy HTTPS](https://caddyserver.com/docs/quick-starts/reverse-proxy).
