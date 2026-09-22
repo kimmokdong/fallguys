@@ -5,6 +5,19 @@ import {createRacer} from '../public/world.js';
 const players=()=>Array.from({length:30},(_,i)=>({...createRacer(i),id:'p'+i,netId:i,participating:true,x:i*4.12345-40,y:i*.1211,z:i*2.31,vx:4.256,vy:-3.582,vz:9.023,yaw:-3.012345,progress:i/31}));
 const snapshot=(ps,time=1,collapsed={})=>({epoch:1234,time,players:ps,collapsed});
 const reader=ps=>{const d=new StateDecoder();d.setRoom({startsAt:1234,players:ps});return d;};
+test('탄성 효과·발생 위치·바닥 종류를 기존 38바이트 안에서 보내고 완주 기록도 보존한다',()=>{
+ const ps=players(),e=new StateEncoder(),d=reader(ps);ps[0].x=0;ps[1].x=200;
+ d.decode(e.encode(snapshot(ps),'p0',{now:0}));
+ Object.assign(ps[1],{springCount:65535,springSource:'o7',springKind:1,surface:1});
+ const a=d.decode(e.encode(snapshot(ps,1.1),'p0',{now:100})).players.find(p=>p.id==='p1');
+ assert.equal(a.springCount,65535);assert.equal(a.springSource,'o7');assert.equal(a.surface,1);assert.equal(a.springKind,1);
+ Object.assign(ps[1],{springCount:0,springSource:'p25',springKind:2,surface:4});
+ const b=d.decode(e.encode(snapshot(ps,1.2),'p0',{now:200})).players.find(p=>p.id==='p1');
+ assert.equal(b.springCount,0);assert.equal(b.springSource,'p25');assert.equal(b.springKind,2);
+ Object.assign(ps[1],{finished:true,finishTime:128.437});
+ const final=d.decode(e.encode(snapshot(ps,129),'p0',{now:300})).players.find(p=>p.id==='p1');
+ assert.equal(final.finishTime,128.437);assert.equal(final.springCount,undefined);assert.equal(packPlayer(ps[1]).length,38);
+});
 test('30명 전체 상태는 1.2KB 이내, 좌표·속도·효과음·순위 정보는 정확히 복원한다',()=>{
  const ps=players();Object.assign(ps[0],{jumpCount:300,landCount:290,fallCount:21,finished:true,finishTime:123.4567,checkpoint:11,diveCooldown:1.16,bumpTime:.23,hitCooldown:.79});
  const before=structuredClone(ps),e=new StateEncoder(),d=reader(ps),wire=e.encode(snapshot(ps,12.345),'p0',{now:0});

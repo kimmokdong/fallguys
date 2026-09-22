@@ -39,12 +39,19 @@ export class GameAudio {
     if (!this.enabled || !ctx || ctx.state !== 'running' || document.hidden) return;
     if (kind === 'hit' && performance.now() - this.lastHit < 220) return;
     if (kind === 'hit') this.lastHit = performance.now();
+    if (kind === 'skid' && performance.now() - (this.lastSkid || 0) < 260) return;
+    if (kind === 'skid') this.lastSkid = performance.now();
+    if (kind === 'belt' && performance.now() - (this.lastBelt || 0) < 1000) return;
+    if (kind === 'belt') this.lastBelt = performance.now();
     const notes = {
       confirm: [[523, 659, .12, 'triangle'], [784, 784, .16, 'triangle']],
       out: [[330, 220, .18, 'triangle'], [196, 130, .24, 'triangle']],
       warning: [[660, 660, .08, 'triangle']],
       jump: [[240, 460, .12, 'triangle']], land: [[180, 90, .1, 'triangle']],
       hit: [[160, 50, .14, 'triangle']], dive: [[340, 100, .17, 'sine']],
+      rebound: [[130, 620, .12, 'sine'], [620, 190, .24, 'sine']],
+      spring: [[170, 850, .28, 'triangle']],
+      skid: [[420, 270, .12, 'triangle']], belt: [[95, 145, .25, 'sawtooth']],
       checkpoint: [[440, 550, .1, 'sine'], [660, 740, .16, 'sine']],
       finish: [[392, 392, .13, 'triangle'], [494, 494, .13, 'triangle'], [587, 784, .3, 'triangle']],
       count: [[440, 440, .1, 'sine']], go: [[660, 880, .23, 'triangle']],
@@ -55,7 +62,7 @@ export class GameAudio {
       const oscillator = ctx.createOscillator(), gain = ctx.createGain();
       oscillator.type = type; oscillator.frequency.setValueAtTime(from, start);
       oscillator.frequency.exponentialRampToValueAtTime(to, start + duration);
-      gain.gain.setValueAtTime(.0001, start); gain.gain.exponentialRampToValueAtTime(.22, start + .008);
+      gain.gain.setValueAtTime(.0001, start); gain.gain.exponentialRampToValueAtTime(kind==='skid'?.035:kind==='belt'?.07:.22, start + .008);
       gain.gain.exponentialRampToValueAtTime(.0001, start + duration);
       oscillator.connect(gain); gain.connect(this.master);
       oscillator.start(start); oscillator.stop(start + duration + .02);

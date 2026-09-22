@@ -7,7 +7,7 @@ const same = (a, b) => a && a.every((value, i) => value === b[i]);
 export function packPlayer(p) {
   const bytes = new Uint8Array(PLAYER), v = new DataView(bytes.buffer);
   v.setUint8(0, p.netId);
-  v.setUint8(1, Number(!!p.grounded) | Number(!!p.finished) << 1 | Number(!!p.eliminated) << 2);
+  v.setUint8(1, Number(!!p.grounded) | Number(!!p.finished) << 1 | Number(!!p.eliminated) << 2 | (p.surface || 0) << 3 | (p.springKind || 0) << 6);
   ['x','y','z'].forEach((key,i) => v.setFloat32(2+i*4, Math.round(finite(p[key])*100)/100, true));
   ['vx','vy','vz'].forEach((key,i) => v.setInt16(14+i*2, clamp(Math.round(finite(p[key])*100),-32768,32767), true));
   v.setInt16(20, Math.round(Math.atan2(Math.sin(finite(p.yaw)),Math.cos(finite(p.yaw)))*10000), true);
@@ -15,7 +15,13 @@ export function packPlayer(p) {
   ['diveCooldown','bumpTime','hitCooldown'].forEach((key,i)=>v.setUint8(24+i,clamp(Math.round(finite(p[key])*100),0,255)));
   v.setInt8(27, clamp(p.checkpoint ?? -1,-128,127));
   ['jumpCount','landCount','fallCount'].forEach((key,i)=>v.setUint16(28+i*2,finite(p[key]) & 65535,true));
-  v.setUint32(34, Math.round(Math.max(0,finite(p.finishTime))*1000),true);
+  // 완주 전에는 비어 있던 기록 칸에 탄성 효과 번호와 발생 위치를 담습니다. 전송 크기는 그대로입니다.
+  if (p.finished) v.setUint32(34, Math.round(Math.max(0,finite(p.finishTime))*1000),true);
+  else {
+    v.setUint16(34, finite(p.springCount) & 65535, true);
+    const source = p.springSource;
+    v.setUint16(36, source ? (Number(source.slice(1)) + 1) | (source[0] === 'p' ? 32768 : 0) : 0, true);
+  }
   return bytes;
 }
 
@@ -31,7 +37,7 @@ export class StateEncoder {
     for(const [i,p] of state.players.entries()) {
       const bytes=packed[i], previous=this.previous.get(p.netId);
       // 완주·탈락·낙하 복귀는 거리에 관계없이 즉시 반영합니다.
-      const critical=!previous || bytes[1]!==previous[1] || bytes[32]!==previous[32] || bytes[33]!==previous[33];
+      const critical=!previous || bytes[1]!==previous[1] || bytes[32]!==previous[32] || bytes[33]!==previous[33] || bytes[34]!==previous[34] || bytes[35]!==previous[35];
       const near=!focus || p.id===focusId || Math.hypot(p.x-focus.x,p.z-focus.z)<=42;
       if(!full && ((!near && !critical && now-(this.sentAt.get(p.netId)??-Infinity)<333) || same(previous,bytes))) continue;
       updates.push(bytes); this.previous.set(p.netId,bytes); this.sentAt.set(p.netId,now);
@@ -73,6 +79,7 @@ export class StateDecoder {
       const slot=v.getUint8(offset),entry=this.roster.get(slot),flags=v.getUint8(offset+1);
       if(!entry) continue;
       const p={id:entry.id,netId:slot,grounded:!!(flags&1),finished:!!(flags&2),eliminated:!!(flags&4),sampleTime:time};
+      p.surface = (flags >> 3) & 7; p.springKind = flags >> 6;
       ['x','y','z'].forEach((key,j)=>p[key]=v.getFloat32(offset+2+j*4,true));
       if(![p.x,p.y,p.z].every(Number.isFinite)) throw new Error('잘못된 좌표');
       ['vx','vy','vz'].forEach((key,j)=>p[key]=v.getInt16(offset+14+j*2,true)/100);
@@ -81,6 +88,11 @@ export class StateDecoder {
       p.checkpoint=v.getInt8(offset+27);
       ['jumpCount','landCount','fallCount'].forEach((key,j)=>p[key]=v.getUint16(offset+28+j*2,true));
       if(p.finished) p.finishTime=v.getUint32(offset+34,true)/1000;
+      else {
+        p.springCount = v.getUint16(offset+34,true);
+        const source=v.getUint16(offset+36,true);
+        p.springSource=source ? (source & 32768 ? 'p' : 'o') + ((source & 32767)-1) : null;
+      }
       next.set(slot,p);
     }
     for(let i=0;i<tileCount;i++,offset+=TILE) { const id='p'+v.getUint16(offset,true),value=v.getFloat32(offset+2,true);if(Number.isNaN(value))delete collapsed[id];else if(Number.isFinite(value))collapsed[id]=value;else throw new Error('잘못된 발판 시간'); }

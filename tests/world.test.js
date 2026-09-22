@@ -1,6 +1,44 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { MAPS, createCourse, createRacer, stepPlayer, stepPlayers, obstaclePose, platformActive, platformTiming, platformPose } from '../public/world.js';
+import { MAPS, createCourse, createRacer, stepPlayer, stepPlayers, obstaclePose, platformActive, platformTiming, platformPose, supportAt, conveyorVelocity } from '../public/world.js';
+
+test('빙판은 관성과 드리프트가 크고, 벨트는 정지·역주행·정주행 모두 같은 방향으로 운반한다',()=>{
+  const course=type=>({...createCourse('jelly-garden'),platforms:[{id:'p0',x:0,z:0,y:0,w:200,d:200,type,axis:'z',speed:7}],obstacles:[],checkpoints:[],finish:{x:90,z:90,y:0,radius:1}});
+  const run=(type,input,start={})=>{const p=Object.assign(createRacer(),{x:0,z:0},start),c=course(type);for(let i=0;i<90;i++)stepPlayers([p],[input],c,(i+1)/90,1/90);return p;};
+  const normal=run('normal',{}, {vz:10}),ice=run('ice',{}, {vz:10});
+  assert.ok(ice.z>7 && ice.z>normal.z*8);assert.ok(ice.vz>5);
+  const turn=run('ice',{x:1},{vz:10});assert.ok(turn.vz>4 && turn.vx>5,'방향을 바꿔도 기존 진행 관성 유지');
+  assert.ok(Math.abs(run('conveyor',{}).z-7)<.03);
+  assert.ok(run('conveyor',{z:-1}).z>-3.1 && run('conveyor',{z:-1}).z<-2);
+  assert.ok(run('conveyor',{z:1}).z>16);
+  const p=Object.assign(createRacer(),{x:0,z:0}),c=course('conveyor');Object.assign(c.platforms[0],{rotation:Math.PI/2,axis:'x',speed:-7});
+  for(let i=0;i<90;i++)stepPlayers([p],[{}],c,(i+1)/90,1/90);
+  assert.ok(Math.abs(p.x+7)<.03 && Math.abs(p.z)<.01);assert.deepEqual(conveyorVelocity(c.platforms[0]),{x:-7,z:0});
+});
+
+test('쿠션은 입사 속도에 비례해 반사하고, 트램펄린은 점프 입력 없이 높이 띄운다',()=>{
+  const c={...createCourse('pinball-park'),platforms:[{id:'p0',x:0,z:0,y:0,w:100,d:100}],checkpoints:[],finish:{x:45,z:45,y:0,radius:1},obstacles:[{id:'o0',type:'cushion',x:0,z:0,y:0,w:4,d:4,h:3}]};
+  const hit=speed=>{const p=Object.assign(createRacer(),{x:0,z:-2.5,vz:speed});stepPlayers([p],[{z:1}],c,1,1/90);return p;};
+  const slow=hit(3),fast=hit(17);
+  assert.ok(fast.vz<slow.vz-10);assert.ok(fast.vz<-24);assert.equal(fast.springKind,1);assert.equal(fast.springSource,'o0');
+  for(let i=0;i<18;i++)stepPlayers([fast],[{z:1}],c,1+i/90,1/90);
+  assert.ok(fast.vz<-15,'반사 속도가 공중 조작으로 즉시 사라지지 않음');assert.equal(fast.springCount,1);
+  c.obstacles=[];c.platforms[0].type='trampoline';c.platforms[0].force=17;
+  const p=Object.assign(createRacer(),{x:0,z:0});let height=0;
+  for(let i=0;i<95;i++){stepPlayers([p],[{}],c,i/90,1/90);height=Math.max(height,p.y);}
+  assert.ok(height>5.5);assert.equal(p.springCount,1);assert.equal(p.jumpCount,0);assert.equal(p.springSource,'p0');assert.equal(p.springKind,2);
+});
+
+test('회전 원판은 서 있는 사람을 원을 따라 운반하고 원 밖에서는 지지하지 않는다',()=>{
+  const c={...createCourse('spin-city','survival'),obstacles:[]};
+  c.platforms=[{id:'p0',type:'rotating',x:0,z:0,y:0,w:20,d:20,speed:Math.PI/2}];
+  assert.equal(supportAt(c,9,9,0),null);
+  const p=Object.assign(createRacer(),{x:0,z:5,supportId:'p0'});
+  for(let i=1;i<=90;i++)stepPlayers([p],[{}],c,i/90,1/90);
+  assert.ok(Math.abs(p.x-5)<.03 && Math.abs(p.z)<.03);assert.equal(p.surface,3);assert.equal(p.grounded,true);
+  const airborne=Object.assign(createRacer(),{x:0,z:5,y:4,grounded:false,supportId:'p0'});
+  stepPlayers([airborne],[{}],c,2,1/90);assert.equal(airborne.x,0,'공중에서는 원판에 끌려가지 않음');
+});
 
 test('16개 맵의 지원 규칙, 30명 출발 지점과 서로 다른 동선', () => {
   assert.equal(MAPS.length,16); assert.equal(new Set(MAPS.map(m=>m.id)).size,16);

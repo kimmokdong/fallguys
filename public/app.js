@@ -451,10 +451,13 @@ function renderRaceState() {
       if(me.eliminated&&!soundState.eliminated) sound.play('out');
       else if(me.finished&&!soundState.finished) sound.play('finish');
       else if(me.checkpoint>soundState.checkpoint) sound.play('checkpoint');
+      else if(me.springCount != null && me.springCount !== (soundState.springCount || 0) && me.fallCount === soundState.fallCount) sound.play(me.springKind === 1 ? 'rebound' : 'spring');
       else if((me.jumpCount||0)>(soundState.jumpCount||0)) sound.play('jump');
       else if(me.diveCooldown>soundState.diveCooldown+.3) sound.play('dive');
       else if(me.bumpTime>soundState.bumpTime+.05||me.hitCooldown>soundState.hitCooldown+.15) sound.play('hit');
       else if((me.landCount||0)>(soundState.landCount||0)) sound.play('land');
+      if(me.grounded && me.surface===1 && Math.hypot(me.vx,me.vz)>3) sound.play('skid');
+      if(me.grounded && me.surface===2 && soundState.surface!==2) sound.play('belt');
     }
     soundState={...me};
   }

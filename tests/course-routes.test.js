@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { MAPS,createCourse,createRacer,stepPlayers,platformPose,platformActive } from '../public/world.js';
+import { MAPS,createCourse,createRacer,stepPlayers,platformPose,platformActive,supportAt,conveyorVelocity } from '../public/world.js';
 export function driveCourse(id) {
   const c=createCourse(id); c.obstacles=[];
   const p=Object.assign(createRacer(),{x:0,z:6});
@@ -12,6 +12,9 @@ export function driveCourse(id) {
     if(d<(id==='neon-factory'?3.2:.9) && Math.abs(p.y-(target.y||0))<.7 && goal<points.length-1) {goal++;continue;}
     let x=nx,z=nz,jump=false;
     if(d<5) {x=dx*.4-p.vx*.18;z=dz*.4-p.vz*.18;}
+    // 강한 벨트 위에서는 자동 주행도 바닥 이동을 거슬러 조향해야 합니다.
+    const surface=p.grounded?supportAt(c,p.x,p.z,time,p.y+.1):null;
+    if(surface?.type==='conveyor') {const drift=conveyorVelocity(surface);x-=drift.x/10;z-=drift.z/10;}
     if(p.grounded&&!floor(p.x+nx*1.1,p.z+nz*1.1,time)) {
       if(floor(p.x+nx*6,p.z+nz*6,time+.6)||floor(p.x+nx*7.5,p.z+nz*7.5,time+.75)) {jump=true;x=nx;z=nz;}
       else {x=0;z=0;}

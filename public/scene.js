@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { createCourse, MAPS, obstaclePose, platformTiming, platformPose, supportAt } from './world.js';
+import { createCourse, MAPS, obstaclePose, platformTiming, platformPose, supportAt, conveyorVelocity } from './world.js';
 import { CHARACTERS, COLORS } from './catalog.js';
 import { AutoGraphics, GRAPHICS_LEVELS, renderPixelRatio } from './graphics.js';
 
@@ -39,6 +39,11 @@ export class GameScene {
       torus: new THREE.TorusGeometry(1, .1, 4, 16),
     };
     this.geometries.shadow = new THREE.CircleGeometry(.76, 20);
+    const arrow = new THREE.Shape();
+    arrow.moveTo(0, -.85); arrow.lineTo(.6, -.15); arrow.lineTo(.22, -.15); arrow.lineTo(.22, .7);
+    arrow.lineTo(-.22, .7); arrow.lineTo(-.22, -.15); arrow.lineTo(-.6, -.15); arrow.closePath();
+    this.geometries.arrow = new THREE.ShapeGeometry(arrow).rotateX(-Math.PI / 2);
+    this.beltMatrix = new THREE.Object3D();
     this.contactMaterial = new THREE.MeshBasicMaterial({color: INK, transparent: true, opacity: .24, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1});
     this.desiredCamera = new THREE.Vector3();
     this.scene.add(new THREE.HemisphereLight('#dce5da', '#55605b', 1.6));
@@ -390,6 +395,8 @@ export class GameScene {
     this.decorations = [];
     this.obstacles = [];
     this.platforms = [];
+    this.springEffects = new Map();
+    this.iceTrail = null;
     this.course = null;
   }
 
@@ -593,15 +600,48 @@ export class GameScene {
       group.position.set(platform.x, platform.y ?? 0, platform.z);
       group.rotation.order = "YXZ"; group.rotation.y = platform.rotation || 0;
       if (platform.rise) { group.rotation.x = -Math.atan2(platform.rise, platform.run); group.scale.z = Math.hypot(platform.run,platform.rise)/platform.run; }
+      if (platform.type === 'rotating') {
+        this.mesh(group, 'cylinder', CAMP.wood, [0,-.35,0], [platform.w/2,.7,platform.d/2]);
+        this.mesh(group, 'cylinder', '#427e74', [0,.015,0], [platform.w/2-.15,.05,platform.d/2-.15]);
+        this.ring(group, GOLD, [0,.07,0], [platform.w/2-.4,platform.d/2-.4,.8], true);
+        for (let i=0;i<8;i++) {
+          const angle=i*Math.PI/4, r=platform.w*.35;
+          const mark=this.mesh(group,'arrow',GOLD,[Math.sin(angle)*r,.08,Math.cos(angle)*r],[1.3,1,1.3]);
+          mark.rotation.y=angle+(platform.speed>0?Math.PI/2:-Math.PI/2);
+        }
+        this.mesh(group,'cylinder',CAMP.edge,[0,.05,0],[.7,.1,.7]);
+        this.content.add(group); this.batchLocalMeshes(group); this.platforms.push({data:platform,group});
+        return;
+      }
+      if (platform.type === 'trampoline') {
+        this.box(group,CAMP.wood,[0,-.4,0],[platform.w,.7,platform.d]);
+        const fabric=new THREE.Group(); group.add(fabric);
+        this.box(fabric,'#cdad55',[0,-.02,0],[platform.w-.35,.05,platform.d-.35]);
+        this.ring(fabric,'#735936',[0,.035,0],[Math.min(platform.w,platform.d)*.28,Math.min(platform.w,platform.d)*.28,.5],true);
+        const mark=this.mesh(fabric,'arrow',INK,[0,.07,0],[1.6,1,1.6]);
+        mark.rotation.y=Math.atan2(platform.pushX||0,platform.pushZ||1);
+        for(const side of [-1,1]) {
+          this.box(group,GOLD,[side*(platform.w/2-.15),.025,0],[.3,.16,platform.d]);
+          this.box(group,GOLD,[0,.025,side*(platform.d/2-.15)],[platform.w,.16,.3]);
+        }
+        group.userData.fabric=fabric;
+        const label=this.label('통통 점프',INK,'#d4ba70',3); label.position.set(0,1,-platform.d/2); group.add(label);
+        this.batchLocalMeshes(group); this.content.add(group); this.platforms.push({data:platform,group});
+        return;
+      }
       const color = platform.color || (platform.type === 'ice' ? '#4c7a78' : platform.type === 'conveyor' ? '#8b825c' : baseColor);
       this.box(group, CAMP.wood, [0, -0.34, 0], [platform.w, 0.68, platform.d]);
       this.box(group, CAMP.edge, [0, -0.03, 0], [platform.w - 0.09, 0.065, platform.d - 0.09]);
       this.box(group, color, [0, 0.016, 0], [platform.w - 0.3, 0.035, platform.d - 0.3]);
       if (platform.type === 'ice') this.mesh(group, 'box', '#e9fbff', [0, 0.05, 0], [platform.w - 0.5, 0.018, platform.d - 0.5], { transparent: true, opacity: 0.14, roughness: 0.45 });
       if (platform.type === 'conveyor') {
-        for (let z = -platform.d / 2 + 0.7; z < platform.d / 2; z += 2) {
-          for (const side of [-1, 1]) this.box(group, '#f5fbff', [side * 0.25, 0.051, z], [0.1, 0.03, 0.7]).rotation.y = side * (platform.speed < 0 ? -0.65 : 0.65);
-        }
+        const velocity=conveyorVelocity(platform), cos=Math.cos(platform.rotation||0), sin=Math.sin(platform.rotation||0);
+        const direction={x:velocity.x*cos-velocity.z*sin,z:velocity.x*sin+velocity.z*cos};
+        const marks=[];
+        for(let x=0;x<platform.w-2;x+=3) for(let z=0;z<platform.d-2;z+=3) marks.push({x,z});
+        const belt=new THREE.InstancedMesh(this.geometries.arrow,this.material('#e2c778'),marks.length);
+        belt.frustumCulled=false; group.add(belt);
+        group.userData.belt={mesh:belt,marks,direction};
       }
       if (['disappear','collapse','sink'].includes(platform.type)) this.ring(group, '#fff7d7', [0, 0.07, 0], [Math.min(platform.w, platform.d) * 0.26, Math.min(platform.w, platform.d) * 0.26, 0.65], true);
       if (['disappear','collapse','sink'].includes(platform.type)) {
@@ -618,7 +658,7 @@ export class GameScene {
         this.box(group, CAMP.edge, [0, 0.055, side * (platform.d / 2 - 0.2)], [platform.w - 0.12, 0.035, 0.17]);
       }
       this.content.add(group);
-      if (['moving', 'disappear', 'collapse', 'sink'].includes(platform.type)) {
+      if (['moving', 'disappear', 'collapse', 'sink', 'conveyor'].includes(platform.type)) {
         this.batchLocalMeshes(group, [group.userData.warningBar]);
         this.platforms.push({ data: platform, group });
       }
@@ -637,6 +677,11 @@ export class GameScene {
         const log = this.mesh(group,'cylinder',CAMP.wood,[0,h/2,0],[.6,Math.max(w,d),.6]);
         log.rotation.z = w>d ? Math.PI/2 : 0; log.rotation.x = w>d ? 0 : Math.PI/2;
         for(const side of [-1,1]) this.sphere(group,CAMP.trim,[w>d?side*w/2:0,h/2,w>d?0:side*d/2],[.63,.63,.63]);
+      } else if (type === 'cushion') {
+        this.mesh(group,'cylinder','#619f7d',[0,h*.43,0],[w/2,h*.72,d/2],{roughness:.42});
+        this.sphere(group,'#619f7d',[0,h*.77,0],[w/2,h*.24,d/2]);
+        this.ring(group,'#dfbe70',[0,h*.4,0],[w/2+.04,d/2+.04,1.3],true);
+        for(const side of [-1,1]) this.sphere(group,INK,[side*.3,h*.68,d*.48],[.08,.12,.055]);
       } else if (type === 'bumper' || type === 'pendulum') {
         if (type === 'bumper') this.mesh(group, 'cylinder', color, [0, h / 2, 0], [w / 2, h, d / 2]);
         else this.sphere(group, color, [0, h / 2, 0], [w / 2, h / 2, d / 2]);
@@ -706,7 +751,15 @@ export class GameScene {
     }
     for(let i=0;i<course.path.length;i++) {
       const n=course.path[i];
-      for(const side of [-1,1]) this.tree(n.x+side*18,-5,n.z,1.5);
+      for(const side of [-1,1]) {
+        const x=n.x+side*18, z=n.z;
+        // 굽은 코스의 다른 구간이나 점프 바닥을 배경 나무가 가리지 않게 합니다.
+        const coversFloor=course.platforms.some(p=>{
+          const cos=Math.abs(Math.cos(p.rotation||0)), sin=Math.abs(Math.sin(p.rotation||0));
+          return Math.abs(x-p.x)<(p.w*cos+p.d*sin)/2+3 && Math.abs(z-p.z)<(p.w*sin+p.d*cos)/2+3;
+        });
+        if(!coversFloor) this.tree(x,-5,z,1.5);
+      }
     }
     this.finishY=finish?.y||0;
     this.nextFlag=this.label('다음 깃발',CAMP.helper,INK,4);
@@ -719,6 +772,9 @@ export class GameScene {
       piece.castShadow = false;
     }
     this.confetti.visible = false;
+    this.iceTrail = new THREE.Group();
+    for(let i=0;i<6;i++) for(const side of [-1,1]) this.box(this.iceTrail,'#a9cfca',[side*.3,.045,-i*.6],[.05*(1-i*.1),.012,.45]);
+    this.batchLocalMeshes(this.iceTrail); this.iceTrail.visible=false; this.content.add(this.iceTrail);
     this.paintingCourse = false;
     this.batchStaticMeshes();
   }
@@ -785,7 +841,13 @@ export class GameScene {
     for (const player of state.players || []) {
       const rendered = this.players.get(player.id);
       if (!rendered || rendered.target===player) continue;
+      if (rendered.target && !player.finished && player.springCount != null && player.springCount !== (rendered.target.springCount || 0) && player.fallCount === rendered.target.fallCount) {
+        rendered.springAt = performance.now();
+        if(player.springSource) this.springEffects.set(player.springSource, rendered.springAt);
+      }
       rendered.target = player;
+      const floor=player.grounded? supportAt(this.course,player.x,player.z,state.time,player.y+.1):null;
+      rendered.drift = floor?.type==='conveyor'?conveyorVelocity(floor):floor?.type==='rotating'?{x:(player.z-floor.z)*floor.speed,z:-(player.x-floor.x)*floor.speed}:null;
       rendered.group.visible = !player.eliminated;
       if (!rendered.current || Math.abs(rendered.current.z - player.z) > 15 || Math.abs(rendered.current.y - player.y) > 12) {
         rendered.current = { x: player.x, y: player.y, z: player.z, yaw: player.yaw || 0 };
@@ -858,6 +920,11 @@ export class GameScene {
         group.position.set(pose.x, pose.y ?? data.y ?? 0, pose.z);
         group.rotation.y = pose.rotation || 0;
         group.visible = pose.active !== false;
+        if(data.type==='cushion' || data.type==='bouncer') {
+          const age=(now-(this.springEffects.get(data.id)??-Infinity))/1000;
+          const pulse=age<.65?Math.sin(age/.65*Math.PI)*Math.exp(-age*2):0;
+          group.scale.set(1+pulse*.2,1-pulse*.35,1+pulse*.2);
+        }
         if(group.userData.warning) { group.userData.warning.visible=pose.warning; group.userData.warning.position.set(pose.x,4.5,pose.z); }
         if (group.userData.blades) group.userData.blades.rotation.z = t * 12;
         if (group.userData.wind) group.userData.wind.children.forEach((streak, i) => {
@@ -868,6 +935,21 @@ export class GameScene {
       }
       for (const { data, group } of this.platforms) {
         const pose=platformPose(data,serverTime); group.position.set(pose.x,pose.y,pose.z);
+        if(data.type==='rotating') group.rotation.y=pose.rotation;
+        if(group.userData.fabric) {
+          const age=(now-(this.springEffects.get(data.id)??-Infinity))/1000;
+          group.userData.fabric.position.y=age<.6?-.3*Math.sin(age/.6*Math.PI)*Math.exp(-age*2):0;
+        }
+        if(group.userData.belt) {
+          const {mesh,marks,direction}=group.userData.belt, matrix=this.beltMatrix;
+          const w=data.w-2,d=data.d-2;
+          matrix.rotation.set(0,Math.atan2(direction.x,direction.z),0); matrix.scale.set(1,1,1);
+          marks.forEach((mark,i)=>{
+            matrix.position.set(((mark.x+direction.x*serverTime)%w+w)%w-w/2,.09,((mark.z+direction.z*serverTime)%d+d)%d-d/2);
+            matrix.updateMatrix(); mesh.setMatrixAt(i,matrix.matrix);
+          });
+          mesh.instanceMatrix.needsUpdate=true;
+        }
         if (['disappear','collapse','sink'].includes(data.type)) {
           const timing = platformTiming(data, serverTime, this.course.collapsed);
           group.visible = timing.active;
@@ -884,9 +966,9 @@ export class GameScene {
         const target = player.target, current = player.current;
         const age=Math.max(0,serverTime-(target.sampleTime??this.stateTime));
         const extrapolate = !target.finished && !target.eliminated && !target.bumpTime ? Math.min(age,.16) : 0;
-        current.x += (target.x + (target.vx || 0) * extrapolate - current.x) * alpha;
+        current.x += (target.x + ((target.vx || 0)+(player.drift?.x||0)) * extrapolate - current.x) * alpha;
         current.y += (target.y + (target.vy || 0) * extrapolate - current.y) * alpha;
-        current.z += (target.z + (target.vz || 0) * extrapolate - current.z) * alpha;
+        current.z += (target.z + ((target.vz || 0)+(player.drift?.z||0)) * extrapolate - current.z) * alpha;
         const angle = Math.atan2(Math.sin((target.yaw || 0) - current.yaw), Math.cos((target.yaw || 0) - current.yaw));
         current.yaw += angle * alpha;
         player.group.position.set(current.x, current.y, current.z);
@@ -909,7 +991,8 @@ export class GameScene {
         if (far && now - (player.poseAt || 0) < 100) continue;
         player.poseAt = now;
         const speed = Math.hypot(target.vx || 0, target.vz || 0);
-        const running = target.grounded && speed > 0.3;
+        const skating = target.grounded && target.surface === 1 && speed > 1;
+        const running = target.grounded && speed > 0.3 && !skating;
         const stride = running ? Math.sin(t * 13 + current.z * 0.2) * Math.min(speed / 9, 0.65) : 0;
         rig.leftFoot.position.z = 0.12 + stride * 0.27;
         rig.rightFoot.position.z = 0.12 - stride * 0.27;
@@ -920,10 +1003,21 @@ export class GameScene {
         rig.body.position.y = running ? Math.abs(stride) * 0.07 : 0;
         rig.body.rotation.x = !target.grounded && target.diveCooldown > 0.85 ? -0.65 : 0;
         rig.body.rotation.z = target.finished ? Math.sin(t * 5) * 0.08 : target.bumpTime > 0 ? Math.sin(t * 40) * target.bumpTime * 0.9 : 0;
+        if(skating) { rig.body.rotation.x=.12; rig.body.rotation.z=Math.sin(t*4)*.1; }
+        const springAge=(now-(player.springAt??-Infinity))/1000;
+        const stretch=springAge<.7?Math.sin(springAge/.7*Math.PI)*Math.exp(-springAge):0;
+        rig.body.scale.set(1-stretch*.16,1+stretch*.35,1-stretch*.16);
         rig.leftArm.rotation.z = target.finished ? -2.25 : target.grounded ? -0.25 : -1.05;
         rig.rightArm.rotation.z = target.finished ? 2.25 : target.grounded ? 0.25 : 1.05;
+        if(skating) {rig.leftArm.rotation.z=-.9;rig.rightArm.rotation.z=.9;}
       }
       const local = this.players.get(this.followId || this.playerId);
+      this.iceTrail.visible=!!local?.target?.grounded && local.target.surface===1 && Math.hypot(local.target.vx,local.target.vz)>2;
+      if(this.iceTrail.visible && local.current) {
+        this.iceTrail.position.set(local.current.x,local.current.y,local.current.z);
+        this.iceTrail.rotation.y=Math.atan2(local.target.vx,local.target.vz);
+        this.iceTrail.scale.z=Math.min(1.5,Math.hypot(local.target.vx,local.target.vz)/8);
+      }
       if (Date.now() < this.introEnd) {
         const progress = Math.max(0, Math.min(1, (Date.now() - this.introStart) / 3000));
         const along=matchMedia('(prefers-reduced-motion: reduce)').matches?0:progress*(this.course.path.length-1);
