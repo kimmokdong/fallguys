@@ -348,7 +348,6 @@ function renderRoom(previous) {
     mapOptions(room.settings);
     $('#map-select').value = room.settings.mapId;
     $('#character-mode').value = room.settings.characterMode;
-    $('#duration-select').value = room.settings.duration;
     $('#match-mode').value = room.settings.matchMode;
     $('#round-rule').value=room.settings.roundRule; $('#rule-settings').hidden=room.settings.matchMode!=='single';
     $('#map-select-label').textContent=room.settings.matchMode==='elimination'?'첫 라운드 맵':'플레이할 맵';
@@ -407,7 +406,7 @@ function renderRoom(previous) {
 
 $('#ready-toggle').addEventListener('click', () => send({ type: 'ready', ready: !room.players.find(p => p.id === myId)?.ready }));
 $('#settings-form').addEventListener('change', event => {
-  const settings={mapId:$('#map-select').value,characterMode:$('#character-mode').value,duration:Number($('#duration-select').value),matchMode:$('#match-mode').value,rounds:Number($('#rounds-select').value),roundRule:$('#round-rule').value};
+  const settings={mapId:$('#map-select').value,characterMode:$('#character-mode').value,matchMode:$('#match-mode').value,rounds:Number($('#rounds-select').value),roundRule:$('#round-rule').value};
   if(settings.matchMode==='series') settings.roundRule='race';
   if(event.target.id==='match-mode' || event.target.id==='round-rule') { mapOptions(settings); settings.mapId=$('#map-select').value; }
   send({type:'settings',...settings});

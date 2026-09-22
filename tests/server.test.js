@@ -135,11 +135,11 @@ test('30명 방, 권한, 옵션, 재접속, 서버 경기 종료와 방장 이�
   assert.match((await guest.wait(ofType('error'))).message, /방장/);
   host.send({ type: 'settings', mapId: 'missing-map', duration: 10 });
   assert.match((await host.wait(ofType('error'))).message, /맵/);
-  assert.equal(app.rooms.get(welcome.code).settings.duration, 180, '잘못된 설정은 부분 적용하지 않는다.');
+  assert.equal(app.rooms.get(welcome.code).settings.duration, 60, '잘못된 설정은 부분 적용하지 않는다.');
   host.send({ type: 'settings', mapId: MAPS[1].id, characterMode: 'random', duration: 120 });
-  const randomized = await host.wait(roomWhere((room) => room.settings.characterMode === 'random' && room.settings.mapId === MAPS[1].id && room.settings.duration === 120));
+  const randomized = await host.wait(roomWhere((room) => room.settings.characterMode === 'random' && room.settings.mapId === MAPS[1].id && room.settings.duration === 60));
   assert.equal(randomized.room.settings.mapId, MAPS[1].id);
-  assert.equal(randomized.room.settings.duration, 120);
+  assert.equal(randomized.room.settings.duration, 60, '이전 버전 클라이언트의 시간 설정도 무시한다.');
   assert.equal(new Set(randomized.room.players.map((p) => p.character)).size, 30, '무작위 배정은 30개 캐릭터를 중복 없이 나눈다.');
   const assigned = randomized.room.players.find((p) => p.id === guest.id).character;
   guest.send({ type: 'customize', character: CHARACTERS.find((c) => c.id !== assigned).id, color: COLORS[1].id });
@@ -156,7 +156,7 @@ test('30명 방, 권한, 옵션, 재접속, 서버 경기 종료와 방장 이�
   host.send({ type: 'start' });
   const countdown = await host.wait(roomWhere((room) => room.phase === 'countdown'));
   assert.equal(countdown.room.mapId, MAPS[1].id);
-  assert.equal(countdown.room.endsAt - countdown.room.startsAt, 120_000);
+  assert.equal(countdown.room.endsAt - countdown.room.startsAt, 60_000);
   await host.wait(roomWhere((room) => room.phase === 'playing'));
   const state = await host.wait((m) => m.type === 'state' && m.time > 0);
   assert.equal(state.players.length, 30);
@@ -215,6 +215,7 @@ test('경기 도중 탈퇴 기록, 재접속 유예, 같은 토큰 연결 교체
   await prepareRoom(runners, host, app.rooms.get(welcome.code).players.size);
   host.send({ type: 'start' });
   await host.wait(roomWhere((room) => room.phase === 'playing'));
+  assert.equal(app.rooms.get(welcome.code).endsAt - app.rooms.get(welcome.code).startsAt, 60_000, '단판도 1분이다.');
   leaver.send({ type: 'leave' });
   await leaver.wait(ofType('left'));
   returning.socket.terminate();
@@ -308,6 +309,7 @@ test('3판 누적 점수전: 라운드 전환 권한, 맵 중복 방지, 점수 
   for (let round = 1; round <= 3; round++) {
     await host.wait(roomWhere((r) => r.phase === 'playing' && r.round === round));
     const active = app.rooms.get(welcome.code); maps.add(active.mapId);
+    assert.equal(active.endsAt - active.startsAt, 60_000, '누적 점수전의 매 라운드도 1분이다.');
     const finisher = active.players.get(round === 1 ? welcome.id : joined.id);
     Object.assign(finisher.racer, { ...active.course.finish, checkpoint:active.course.checkpoints.length-1, vy: 0 });
     await host.wait(roomWhere((r) => r.round === round && r.results.some((row) => row.status === 'finished')));

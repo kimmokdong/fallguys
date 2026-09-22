@@ -222,7 +222,7 @@ export function createGameServer({ reconnectGraceMs = 20_000, countdownMs = 6_00
           do { code = String(randomInt(100000, 1000000)); } while (rooms.has(code));
           const room = {
             code, hostId: player.id, phase: 'lobby', players: new Map([[player.id, player]]),
-            settings: { mapId: 'random', characterMode: 'choice', duration: 180, matchMode: 'elimination', roundRule: 'race', rounds: 3 },
+            settings: { mapId: 'random', characterMode: 'choice', duration: 60, matchMode: 'elimination', roundRule: 'race', rounds: 3 },
             mapId: null, startsAt: null, endsAt: null, resultsAt: null, results: [], course: null, round: 0, scores: [], playedMaps: [], roundPlayers: [], eliminationHistory: [], standings: [], matchOver: false,
           };
           rooms.set(code, room);
@@ -338,7 +338,6 @@ export function createGameServer({ reconnectGraceMs = 20_000, countdownMs = 6_00
         const before = JSON.stringify(room.settings);
         if (message.mapId !== undefined && message.mapId !== 'random' && !validMap(message.mapId)) { error(socket, '존재하지 않는 맵입니다.'); return; }
         if (message.characterMode !== undefined && !['choice', 'random'].includes(message.characterMode)) { error(socket, '캐릭터 배정 옵션이 올바르지 않습니다.'); return; }
-        if (message.duration !== undefined && (!Number.isInteger(message.duration) || message.duration < 60 || message.duration > 300)) { error(socket, '라운드 시간은 60초부터 300초까지 설정할 수 있습니다.'); return; }
         if (message.matchMode !== undefined && !['single', 'series', 'elimination'].includes(message.matchMode)) { error(socket, '경기 모드가 올바르지 않습니다.'); return; }
         if (message.rounds !== undefined && ![3, 5, 7].includes(message.rounds)) { error(socket, '점수전은 3판, 5판, 7판 중 선택해 주세요.'); return; }
         if(message.roundRule!==undefined && !['race','survival'].includes(message.roundRule)) { error(socket,'라운드 종류가 올바르지 않습니다.'); return; }
@@ -348,7 +347,6 @@ export function createGameServer({ reconnectGraceMs = 20_000, countdownMs = 6_00
         if(mode!=='elimination' && mapId!=='random' && !MAPS.find(m=>m.id===mapId).rules.includes(rule)) { error(socket,'이 모드에서 사용할 수 없는 맵입니다.'); return; }
         room.settings.roundRule=rule;
         if (message.mapId !== undefined) room.settings.mapId = message.mapId;
-        if (message.duration !== undefined) room.settings.duration = message.duration;
         if (message.matchMode !== undefined) room.settings.matchMode = message.matchMode;
         if (message.rounds !== undefined) room.settings.rounds = message.rounds;
         if (message.characterMode !== undefined && room.settings.characterMode !== message.characterMode) {
