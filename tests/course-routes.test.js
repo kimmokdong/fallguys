@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { MAPS,createCourse,createRacer,stepPlayers,platformPose,platformActive,supportAt,conveyorVelocity } from '../public/world.js';
-export function driveCourse(id) {
-  const c=createCourse(id); c.obstacles=[];
+export function driveCourse(id, keepFans=false) {
+  const c=createCourse(id); c.obstacles=keepFans?c.obstacles.filter(o=>o.type==='fan'):[];
   const p=Object.assign(createRacer(),{x:0,z:6});
   const points=id==='door-festival'?[{x:0,z:24},{x:-18,z:32},{x:-18,z:51},{x:0,z:58},c.finish]:c.path.slice(1);
   let goal=0,frame=0;
@@ -25,3 +25,9 @@ export function driveCourse(id) {
 }
 
 test("12개 레이스의 전체 동선을 실제 물리로 완주할 수 있다",()=>{for(const m of MAPS.filter(m=>m.rules.includes("race"))){const r=driveCourse(m.id);assert.equal(r.finished,true,JSON.stringify(r));assert.ok(r.falls<=2,JSON.stringify(r));}});
+
+test('강한 선풍기를 켜도 바람 골짜기와 카오스 크라운의 코스를 조작으로 완주한다',()=>{
+  for(const id of ['wind-valley','chaos-crown']) {
+    const r=driveCourse(id,true);assert.equal(r.finished,true,JSON.stringify(r));assert.equal(r.falls,0,JSON.stringify(r));
+  }
+});

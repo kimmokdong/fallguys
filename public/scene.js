@@ -629,11 +629,13 @@ export class GameScene {
         this.batchLocalMeshes(group); this.content.add(group); this.platforms.push({data:platform,group});
         return;
       }
-      const color = platform.color || (platform.type === 'ice' ? '#4c7a78' : platform.type === 'conveyor' ? '#8b825c' : baseColor);
+      const color = platform.color || (platform.type === 'ice' ? '#608983' : platform.type === 'conveyor' ? '#8b825c' : baseColor);
       this.box(group, CAMP.wood, [0, -0.34, 0], [platform.w, 0.68, platform.d]);
       this.box(group, CAMP.edge, [0, -0.03, 0], [platform.w - 0.09, 0.065, platform.d - 0.09]);
-      this.box(group, color, [0, 0.016, 0], [platform.w - 0.3, 0.035, platform.d - 0.3]);
-      if (platform.type === 'ice') this.mesh(group, 'box', '#e9fbff', [0, 0.05, 0], [platform.w - 0.5, 0.018, platform.d - 0.5], { transparent: true, opacity: 0.14, roughness: 0.45 });
+      // 교차 발판의 반투명 광택층은 깊이가 겹쳐 깜빡이므로 불투명 바닥 재질로 표현합니다.
+      const surfaceOptions = ['ice', 'conveyor'].includes(platform.type)
+        ? { polygonOffset: true, polygonOffsetFactor: 0, polygonOffsetUnits: -2, roughness: platform.type === 'ice' ? .34 : .82 } : {};
+      this.mesh(group, 'box', color, [0, 0.016, 0], [platform.w - 0.3, 0.035, platform.d - 0.3], surfaceOptions);
       if (platform.type === 'conveyor') {
         const velocity=conveyorVelocity(platform), cos=Math.cos(platform.rotation||0), sin=Math.sin(platform.rotation||0);
         const direction={x:velocity.x*cos-velocity.z*sin,z:velocity.x*sin+velocity.z*cos};

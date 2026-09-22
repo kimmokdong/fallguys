@@ -58,7 +58,7 @@ export function createCourse(mapId, rule = 'race') {
     }
     if (info.id === 'spin-city') { c.platforms = []; turntable(0,6,29,.55); spin(0, 6, 22, .85); spin(0, 6, 19, -.7, 2.1); }
     if (info.id === 'log-lake') { log(0, 6, 23, 'z', 14); o('log', 0, 6, 1.2, 23, 1, { axis: 'x', range: 14, speed: .65, phase: 1.9 }); }
-    if (info.id === 'storm-island') { fan(0, 6, 24, 24, 20); o('slider', 0, 6, 1, 15, 2, { range: 10, speed: .6 }); }
+    if (info.id === 'storm-island') { fan(0, 6, 24, 24, 100); o('slider', 0, 6, 1, 15, 2, { range: 10, speed: .6 }); }
     if (info.id === 'tide-tiles') spin(0, 6, 17, .6);
     c.path = [{ x: 0, z: 6, y: 0 }];
     c.finish = null;
@@ -93,7 +93,7 @@ export function createCourse(mapId, rule = 'race') {
         break;
       case 'wind-valley':
         route([[0,6],[0,24],[23,40],[-2,57],[22,75],[-1,91]],8);
-        fan(12,33,18,16,22); fan(11,49,20,15,-25); fan(9,66,19,14,24);
+        fan(12,33,18,16,110); fan(11,49,20,15,-125); fan(9,66,19,14,120);
         for(const [x,z] of [[18,37],[3,53],[16,71]]) o('wall',x,z,2,3,2.5);
         break;
       case 'door-festival': {
@@ -132,7 +132,7 @@ export function createCourse(mapId, rule = 'race') {
         break;
       case 'chaos-crown':
         route([[0,6],[0,32],[30,32],[30,0],[52,0,2],[52,52,4],[23,52,6],[23,20,8]],10);
-        spin(0,25,9); o('gate',30,14,10,1,3,{range:5,speed:1.2}); fan(52,30,10,17,-21); spin(40,52,9,-1.1,5.3); spin(23,28,9,1.35,7.9);
+        spin(0,25,9); o('gate',30,14,10,1,3,{range:5,speed:1.2}); fan(52,30,10,17,-105); spin(40,52,9,-1.1,5.3); spin(23,28,9,1.35,7.9);
         break;
     }
     c.checkpoints = c.path.slice(1,-1).map((n,i)=>({...n,radius:info.id==='pinball-park'?4:5,index:i}));

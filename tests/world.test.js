@@ -16,6 +16,34 @@ test('빙판은 관성과 드리프트가 크고, 벨트는 정지·역주행·�
   assert.ok(Math.abs(p.x+7)<.03 && Math.abs(p.z)<.01);assert.deepEqual(conveyorVelocity(c.platforms[0]),{x:-7,z:0});
 });
 
+test('모든 선풍기는 강풍 때 1초에 몸 여러 개 너비를 밀지만 역방향 조작으로 버틸 수 있다',()=>{
+  for(const map of MAPS) for(const rule of map.rules) {
+    const source=createCourse(map.id,rule);
+    for(const fan of source.obstacles.filter(o=>o.type==='fan')) {
+      const c={...source,rule:'race',platforms:[{id:'p0',x:0,z:0,y:0,w:200,d:200}],obstacles:[{...fan,x:0,z:0,w:100,d:100}],checkpoints:[],finish:{x:90,z:90,y:0,radius:1}};
+      const run=input=>{const p=Object.assign(createRacer(),{x:0,z:0});for(let i=0;i<90;i++)stepPlayers([p],[input],c,5+i/90,1/90);return p;};
+      const idle=run({}),resist=run({[fan.axis]:-Math.sign(fan.force)}),jump=run({jump:true});
+      const distance=idle[fan.axis]*Math.sign(fan.force),label=map.id+' '+fan.id;
+      assert.ok(distance>6 && distance<8.5,label+' 강풍의 확실한 이동');
+      assert.ok(resist[fan.axis]*Math.sign(fan.force)<-1,label+' 반대 방향으로 보행 가능');
+      assert.ok(Math.abs(jump[fan.axis])>distance*1.7,label+' 공중에서 더 크게 밀림');
+    }
+  }
+});
+
+test('강해진 바람도 영역 밖에는 작용하지 않고 생존전 시작 3초는 보호한다',()=>{
+  const c=createCourse('storm-island','survival');c.obstacles=c.obstacles.filter(o=>o.type==='fan');
+  c.platforms=[{id:'p0',x:0,z:6,y:0,w:100,d:100}];
+  const p=Object.assign(createRacer(),{x:0,z:6});
+  for(let i=0;i<270;i++)stepPlayers([p],[{}],c,i/90,1/90);
+  assert.equal(p.x,0);
+  for(let i=270;i<360;i++)stepPlayers([p],[{}],c,i/90,1/90);
+  assert.ok(p.x>2,'보호 시간이 지나면 약한 돌풍 주기에도 밀림');
+  const outside=Object.assign(createRacer(),{x:-15,z:6});
+  for(let i=0;i<90;i++)stepPlayers([outside],[{}],c,5+i/90,1/90);
+  assert.equal(outside.x,-15);assert.equal(outside.vx,0);
+});
+
 test('쿠션은 입사 속도에 비례해 반사하고, 트램펄린은 점프 입력 없이 높이 띄운다',()=>{
   const c={...createCourse('pinball-park'),platforms:[{id:'p0',x:0,z:0,y:0,w:100,d:100}],checkpoints:[],finish:{x:45,z:45,y:0,radius:1},obstacles:[{id:'o0',type:'cushion',x:0,z:0,y:0,w:4,d:4,h:3}]};
   const hit=speed=>{const p=Object.assign(createRacer(),{x:0,z:-2.5,vz:speed});stepPlayers([p],[{z:1}],c,1,1/90);return p;};
