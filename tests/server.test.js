@@ -1,61 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
-import { WebSocket } from 'ws';
-import { createGameServer } from '../server.js';
 import { MAPS } from '../public/world.js';
 import { CHARACTERS, COLORS } from '../public/catalog.js';
-import { StateDecoder } from '../public/network.js';
-
-async function setup(t, options = {}) {
-  const app = createGameServer({ countdownMs: 20, reconnectGraceMs: 1_000, ...options });
-  app.server.listen(0, '127.0.0.1');
-  await once(app.server, 'listening');
-  t.after(() => app.close());
-  return { ...app, url: `http://127.0.0.1:${app.server.address().port}` };
-}
-
-async function client(url, compact=true) {
-  const socket = new WebSocket(url.replace('http:', 'ws:')+(compact?'/?v=2':''));
-  const decoder=new StateDecoder();
-  const messages = [];
-  const waiters = new Set();
-  socket.on('error', () => {});
-  socket.on('message', (raw,isBinary) => {
-    const message=isBinary?decoder.decode(raw):JSON.parse(raw);
-    if(!message) return;
-    if(message.type==='room') decoder.setRoom(message.room);
-    messages.push(message);
-    for (const check of [...waiters]) check();
-  });
-  await once(socket, 'open');
-  return {
-    socket, messages,
-    send: (message) => socket.send(JSON.stringify(message)),
-    wait(predicate, timeoutMs = 3_000) {
-      return new Promise((resolve, reject) => {
-        const timer = setTimeout(() => { waiters.delete(check); reject(new Error('메시지 대기 시간 초과')); }, timeoutMs);
-        function check() {
-          const index = messages.findIndex(predicate);
-          if (index < 0) return;
-          clearTimeout(timer);
-          waiters.delete(check);
-          resolve(messages.splice(index, 1)[0]);
-        }
-        waiters.add(check);
-        check();
-      });
-    },
-  };
-}
-
-async function prepareRoom(clients, host, total) {
-  for (const member of clients) member.send({ type: 'ready', ready: true });
-  await host.wait(roomWhere(r => r.players.length === total && r.players.every(p => p.id === r.hostId || p.ready)));
-}
-
-const roomWhere = (condition) => (message) => message.type === 'room' && condition(message.room);
-const ofType = (type) => (message) => message.type === type;
+import { setup, client, roomWhere, ofType, prepareRoom, barrier, waitFor } from './helpers.js';
 
 test('12인 탈락전: 절반 통과, 탈락한 방장 재접속·관전·다음 판 시작, 마지막 한 명 우승',async t=>{
   const app=await setup(t),host=await client(app.url);
@@ -75,7 +23,7 @@ test('12인 탈락전: 절반 통과, 탈락한 방장 재접속·관전·다음
   assert.equal(rejoined.players.find(p=>p.id===welcome.id).eliminated,true);
   restored.send({type:'next'}); const r2=(await restored.wait(roomWhere(r=>r.phase==='playing'&&r.round===2))).room;
   assert.equal(r2.rule,'survival'); assert.equal(room.players.get(welcome.id).racer,null);
-  restored.send({type:'input',z:1,jump:true}); await new Promise(r=>setTimeout(r,30)); assert.equal(room.players.get(welcome.id).input.z,0);
+  restored.send({type:'input',z:1,jump:true}); await barrier(restored); assert.equal(room.players.get(welcome.id).input.z,0);
   room.roundPlayers.slice(3).forEach(p=>Object.assign(p.racer,{eliminated:true,eliminatedAt:10}));
   const r2end=(await restored.wait(roomWhere(r=>r.phase==='results'&&r.round===2))).room;
   assert.equal(r2end.results.filter(r=>r.qualified).length,3);
@@ -166,7 +114,7 @@ test('30명 방, 권한, 옵션, 재접속, 서버 경기 종료와 방장 이�
   host.send({ type: 'settings', mapId: MAPS[2].id });
   assert.match((await host.wait(ofType('error'))).message, /대기실/);
   guest.send({ type: 'input', x: 999999, z: 'invalid', jump: 'true', dive: true, y: 9999, finished: true });
-  await new Promise((done) => setTimeout(done, 20));
+  await barrier(guest);
   const authoritative = app.rooms.get(welcome.code).players.get(guest.id);
   assert.deepEqual(authoritative.input, { x: 1, z: 0, jump: false, dive: true });
   assert.equal(authoritative.racer.finished, false, '클라이언트가 승리나 위치를 선언할 수 없다.');
@@ -280,7 +228,7 @@ test('정적 파일 경계, 잘못된 메시지, 초과 크기, 연결 종료 �
   const closed = once(bad.socket, 'close');
   bad.socket.send('x'.repeat(3_000));
   assert.equal((await closed)[0], 1009);
-  await new Promise((done) => setTimeout(done, 160));
+  await waitFor(() => app.rooms.size === 0, '재접속 유예 이후 빈 방 정리');
   assert.equal(app.rooms.size, 0, '재접속 유예 이후 빈 방을 정리한다.');
   const health = await client(app.url);
   health.send({ type: 'create', name: '정상 사용자' });
@@ -343,9 +291,8 @@ test('실제 WebSocket 경기에서도 플레이어 충돌이 서버 상태에 �
   Object.assign(room.players.get(welcome.id).racer, { x: 0, z: 20 });
   Object.assign(room.players.get(joined.id).racer, { x: 0, z: 22 });
   host.send({ type: 'input', z: 1 }); guest.send({ type: 'input', z: -1 });
-  await new Promise((resolve) => setTimeout(resolve, 350));
-  host.messages.length = 0;
-  const packet = await host.wait(ofType('state'));
+  // 고정 시간 대신 두 사람이 실제로 부딪힌 상태 패킷을 기다립니다.
+  const packet = await host.wait((m) => m.type === 'state' && m.players.filter((p) => p.bumpTime > 0).length === 2);
   const a = packet.players.find((p) => p.id === welcome.id), b = packet.players.find((p) => p.id === joined.id);
   assert.ok(b.z - a.z >= 1.28, '접속한 참가자끼리 서로 관통하지 않는다');
   assert.ok(a.bumpTime > 0 && b.bumpTime > 0, '충돌 피드백도 양쪽에 전달한다');
@@ -434,17 +381,24 @@ test('한 틱 안에서 눌렀다 뗀 점프도 한 번 실행하고 계속 누�
   const app = await setup(t);
   const host = await client(app.url); host.send({ type: 'create', name: '빠른 점프' });
   const welcome = await host.wait(ofType('welcome'));
+  // 무작위 결승 맵(예: 회전 원판 위 y=.04)에 따라 결과가 달라지지 않도록 평평한 출발대에서 확인합니다.
+  host.send({ type: 'settings', matchMode: 'single', mapId: 'jelly-garden' });
+  await host.wait(roomWhere(r => r.settings.mapId === 'jelly-garden'));
   host.send({ type: 'start' }); await host.wait(roomWhere(r => r.phase === 'playing'));
   host.send({ type: 'input', jump: true }); host.send({ type: 'input', jump: false });
   await host.wait(m => m.type === 'state' && m.players[0].jumpCount === 1 && m.players[0].y > 0);
   const player = app.rooms.get(welcome.code).players.get(welcome.id);
   assert.equal(player.input.jump, false);
-  await new Promise(resolve => setTimeout(resolve, 1000));
-  assert.equal(player.racer.y, 0);
+  const landed = () => player.racer.y === 0 && player.racer.grounded;
+  await waitFor(landed, '첫 점프 착지');
   host.send({ type: 'input', jump: true });
   const keepHeld = setInterval(() => host.send({ type: 'input', jump: true }), 100);
   t.after(() => clearInterval(keepHeld));
-  await new Promise(resolve => setTimeout(resolve, 1200));
+  await waitFor(() => player.racer.jumpCount === 2, '두 번째 점프');
+  await waitFor(landed, '두 번째 점프 착지');
+  // 착지한 뒤에도 계속 누르고 있어 봅니다. 떼었다 누르지 않으면 다시 뛰지 않아야 합니다.
+  const heldSince = Date.now();
+  await waitFor(() => Date.now() - heldSince >= 400, '누르고 있기');
   clearInterval(keepHeld);
   assert.equal(player.racer.jumpCount, 2);
   assert.equal(player.racer.y, 0);
@@ -480,8 +434,8 @@ test('새 통신과 이전 통신의 혼합 접속·관전 대상·탭 복귀를
  const app=await setup(t),host=await client(app.url),guest=await client(app.url,false);host.send({type:'create',name:'새 화면'});const w=await host.wait(ofType('welcome'));
  guest.send({type:'join',code:w.code,name:'이전 화면'});const g=await guest.wait(ofType('welcome'));host.send({type:'settings',matchMode:'single',mapId:'jelly-garden'});await host.wait(roomWhere(r=>r.settings.matchMode==='single'));await prepareRoom([guest],host,2);host.send({type:'start'});await host.wait(roomWhere(r=>r.phase==='playing'));
  const room=app.rooms.get(w.code);const legacy=await guest.wait(ofType('state'));assert.equal(legacy.players.length,2);assert.ok('spawnX' in legacy.players[0]);
- host.send({type:'view',watchId:g.id,hidden:true});await new Promise(r=>setTimeout(r,30));assert.equal(room.players.get(w.id).socket.view.watchId,null,'경기 중에는 임의의 타인 중심 시야를 요청할 수 없다');
+ host.send({type:'view',watchId:g.id,hidden:true});await barrier(host);assert.equal(room.players.get(w.id).socket.view.watchId,null,'경기 중에는 임의의 타인 중심 시야를 요청할 수 없다');
  Object.assign(room.players.get(w.id).racer,{finished:true,finishTime:1});await host.wait(m=>m.type==='state'&&m.players.find(p=>p.id===w.id)?.finished);
- host.send({type:'view',watchId:g.id,hidden:false});await new Promise(r=>setTimeout(r,30));assert.equal(room.players.get(w.id).socket.view.watchId,g.id);
+ host.send({type:'view',watchId:g.id,hidden:false});await barrier(host);assert.equal(room.players.get(w.id).socket.view.watchId,g.id);
  assert.ok((await host.wait(m=>m.type==='state'&&m.players.find(p=>p.id===w.id)?.finished)).players.some(p=>p.id===g.id));
 });

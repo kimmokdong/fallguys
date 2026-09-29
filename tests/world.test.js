@@ -238,3 +238,64 @@ test('압축기 경고와 낮은 통나무 충돌·점프 회피',()=>{
   const p=Object.assign(createRacer(),{x:0,z:14.5}); stepPlayers([p],[{z:1}],lake,4,1/30); assert.ok(p.hitCooldown>0);
   const jumper=Object.assign(createRacer(),{x:0,z:15,y:1.5,grounded:false}); stepPlayers([jumper],[{}],lake,4,1/90); assert.equal(jumper.hitCooldown,0);
 });
+
+test('착지와 동시에 예약 점프로 떠도 붕괴 발판이 반응하고 번호 깃발을 인정한다',()=>{
+  const field=createCourse('leaf-square','survival');
+  const hopper=Object.assign(createRacer(),{x:2.4,z:8.4,y:.35,vy:-5,grounded:false});
+  stepPlayers([hopper],[{jump:true}],field,4,1/90);
+  for(let i=1;i<=7;i++) stepPlayers([hopper],[{}],field,4+i/90,1/90);
+  assert.equal(hopper.jumpCount,1); assert.ok(hopper.vy>0,'착지 즉시 예약 점프');
+  assert.equal(Object.keys(field.collapsed).length,1,'밟고 바로 뛰어도 발판은 경고 후 무너진다');
+  const race=createCourse('jelly-garden'); race.obstacles=[];
+  const flag=race.checkpoints[0];
+  const runner=Object.assign(createRacer(),{x:flag.x,z:flag.z,y:flag.y+.35,vy:-5,grounded:false});
+  stepPlayers([runner],[{jump:true}],race,10,1/90);
+  for(let i=1;i<=7;i++) stepPlayers([runner],[{}],race,10+i/90,1/90);
+  assert.equal(runner.jumpCount,1); assert.equal(runner.checkpoint,0,'깃발 위에서 곧바로 뛰어도 통과로 인정');
+});
+
+test('물결 징검마당은 준비 시간이 끝나며 잠길 발판도 1초 전에 경고한다',()=>{
+  const tiles=createCourse('tide-tiles','survival').platforms.filter(p=>p.type==='disappear');
+  const sinking=tiles.filter(p=>!platformActive(p,5)), staying=tiles.filter(p=>platformActive(p,5));
+  assert.ok(sinking.length>0 && staying.length>0);
+  for(const tile of sinking) {
+    assert.equal(platformTiming(tile,3.9).warning,false);
+    const timing=platformTiming(tile,4.2);
+    assert.equal(timing.active,true); assert.equal(timing.warning,true,'사라지기 1초 전부터 경고');
+    assert.ok(Math.abs(timing.remaining-.8)<1e-9,'경고 막대가 실제로 사라지는 시각까지 줄어든다');
+  }
+  for(const tile of staying) assert.equal(platformTiming(tile,4.5).warning,false,'계속 남는 발판은 경고하지 않는다');
+});
+
+test('생존전 시작 3초 동안은 몸이 겹치지 않게만 하고 밀쳐내는 충격은 주지 않는다',()=>{
+  const arena={...createCourse('log-lake','survival'),obstacles:[],platforms:[{id:'p0',x:0,z:6,y:0,w:100,d:100}]};
+  const impact=time=>{
+    const racers=[Object.assign(createRacer(0),{x:0,z:4.65}),Object.assign(createRacer(1),{x:0,z:6})];
+    stepPlayers(racers,[{z:1,dive:true},{}],arena,time,1/30);
+    return racers;
+  };
+  const early=impact(1), later=impact(5);
+  assert.ok(early[1].z-early[0].z>1.29,'보호 시간에도 서로 통과하지는 않는다');
+  assert.ok(Math.abs(early[1].vz)<.5,'보호 시간에는 밀쳐내는 충격이 없다');
+  assert.ok(later[1].vz>3,'보호 시간이 끝나면 몸싸움 충격이 돌아온다');
+});
+
+test('첫 깃발 전 실시간 순위는 출발 칸과 관계없이 같은 위치면 같은 진행도다',()=>{
+  const course=createCourse('jelly-garden'); course.obstacles=[];
+  const front=createRacer(29), back=createRacer(0);
+  for(const racer of [front,back]) { Object.assign(racer,{x:0,z:14}); stepPlayers([racer],[{}],course,1,1/90); }
+  assert.ok(front.progress>0);
+  assert.equal(front.progress,back.progress);
+});
+
+test('인원이 모자란 앞줄은 가운데에 모여 서고 가득 찬 줄은 기존 자리를 유지한다',()=>{
+  assert.equal(createRacer(6,7).x,0);
+  assert.deepEqual([24,25].map(i=>createRacer(i,26).x),[-1.2,1.2]);
+  assert.deepEqual([0,5].map(i=>createRacer(i,7).x),[-6,6]);
+  assert.deepEqual(Array.from({length:30},(_,i)=>createRacer(i).x),Array.from({length:30},(_,i)=>(i%6-2.5)*2.4));
+  for(let total=1;total<=30;total++) {
+    const racers=Array.from({length:total},(_,i)=>createRacer(i,total));
+    const front=racers.filter(r=>r.z===racers.at(-1).z);
+    assert.ok(Math.abs(front.reduce((sum,r)=>sum+r.x,0))<1e-9,total+'명 앞줄 좌우 균형');
+  }
+});

@@ -48,3 +48,9 @@ test('강퇴·퇴장과 번호 재사용 때 이전 참가자가 남지 않고 �
  d.setRoom({startsAt:1234,players:[{...ps[1],id:'new',netId:1}]});assert.equal(d.players.size,0);
  assert.equal(packPlayer({...ps[0],x:5000}).byteLength,38);
 });
+test('범위를 넘는 바닥·탄성 번호가 다른 상태 비트를 덮지 않는다',()=>{
+ const bytes=packPlayer({...createRacer(),netId:0,surface:9,springKind:5});
+ assert.equal(bytes[1]&0b111,1,'착지·완주·탈락 비트 보존');
+ assert.equal((bytes[1]>>3)&7,1);assert.equal(bytes[1]>>6,1);
+ assert.equal(packPlayer({...createRacer(),netId:0,surface:9})[1]>>6,0,'바닥 번호가 탄성 비트로 넘치지 않는다');
+});
