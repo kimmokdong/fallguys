@@ -7,7 +7,8 @@ const same = (a, b) => a && a.every((value, i) => value === b[i]);
 export function packPlayer(p) {
   const bytes = new Uint8Array(PLAYER), v = new DataView(bytes.buffer);
   v.setUint8(0, p.netId);
-  v.setUint8(1, Number(!!p.grounded) | Number(!!p.finished) << 1 | Number(!!p.eliminated) << 2 | (p.surface || 0) << 3 | (p.springKind || 0) << 6);
+  // 바닥 종류는 3비트, 탄성 종류는 2비트입니다. 범위를 넘는 값이 다른 상태 비트를 덮지 않게 자릅니다.
+  v.setUint8(1, Number(!!p.grounded) | Number(!!p.finished) << 1 | Number(!!p.eliminated) << 2 | ((p.surface || 0) & 7) << 3 | ((p.springKind || 0) & 3) << 6);
   ['x','y','z'].forEach((key,i) => v.setFloat32(2+i*4, Math.round(finite(p[key])*100)/100, true));
   ['vx','vy','vz'].forEach((key,i) => v.setInt16(14+i*2, clamp(Math.round(finite(p[key])*100),-32768,32767), true));
   v.setInt16(20, Math.round(Math.atan2(Math.sin(finite(p.yaw)),Math.cos(finite(p.yaw)))*10000), true);

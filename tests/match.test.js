@@ -65,3 +65,15 @@ test('탈락전은 통과한 명단만 직전 하위 순위 우선, 공동 생�
   assert.deepEqual(startingSlots(p,{mode:'elimination',rule:'race',round:3,results:tied},seeded(5)),random);
   assert.deepEqual(startingSlots(p,{mode:'series',rule:'race',round:3,scores:tied},seeded(5)),random);
 });
+test('생존전에서 남은 사람 없이 동시에 떨어지면 가장 오래 버틴 참가자들이 함께 통과한다',()=>{
+  const p=players(4);
+  [[0,20],[1,20],[2,12],[3,8]].forEach(([i,t])=>Object.assign(p[i].racer,{eliminated:true,eliminatedAt:t}));
+  const rows=roundResults(p,{rule:'survival',final:true,quota:1,time:20});
+  assert.deepEqual(rows.filter(r=>r.qualified).map(r=>r.id).sort(),['0','1'],'결승이면 둘이 동률 재결승');
+  assert.deepEqual(rows.map(r=>r.rank),[1,1,3,4]);
+  const solo=players(1); Object.assign(solo[0].racer,{eliminated:true,eliminatedAt:5});
+  assert.equal(roundResults(solo,{rule:'survival',time:5})[0].qualified,false,'혼자 연습한 판의 낙하는 실패');
+  const left=players(3); left[0].withdrawn=true;
+  [[0,30],[1,20],[2,20]].forEach(([i,t])=>Object.assign(left[i].racer,{eliminated:true,eliminatedAt:t}));
+  assert.deepEqual(roundResults(left,{rule:'survival',time:30}).filter(r=>r.qualified).map(r=>r.id).sort(),['1','2'],'중도 퇴장자는 제외');
+});

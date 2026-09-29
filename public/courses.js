@@ -25,7 +25,7 @@ export const availableMaps = (mode, rule = 'race') => MAPS.filter(m => mode === 
 export function createCourse(mapId, rule = 'race') {
   const info = MAPS.find(m => m.id === mapId) || MAPS[0];
   rule = info.rules.includes(rule) ? rule : info.rules[0];
-  const c = { ...info, rule, width: 24, platforms: [], obstacles: [], checkpoints: [], path: [], collapsed: {} };
+  const c = { ...info, rule, platforms: [], obstacles: [], checkpoints: [], path: [], collapsed: {} };
   let platformId = 0;
   const p = (x, z, w, d, y = 0, extra = {}) => { const item = { id: 'p' + platformId++, x, z, w, d, y, type: 'normal', rotation: 0, ...extra }; c.platforms.push(item); return item; };
   const o = (type, x, z, w, d, h, extra = {}) => c.obstacles.push({ id: 'o' + c.obstacles.length, type, x, z, w, d, h, y: 0, speed: 1, phase: 0, range: 0, axis: 'x', ...extra });

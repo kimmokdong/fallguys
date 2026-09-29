@@ -669,7 +669,7 @@ export class GameScene {
     for (const obstacle of course.obstacles) {
       const group = new THREE.Group();
       const { w, h, d, type } = obstacle;
-      const color = obstacle.color || ({ spinner: '#b85c37', bumper: '#b85c37', gate: '#b85c37', pendulum: '#b85c37', fan: '#c5a15a', bouncer: '#c5a15a', wall: '#b85c37' })[type] || '#b85c37';
+      const color = obstacle.color || ({ spinner: '#b85c37', bumper: '#b85c37', gate: '#b85c37', pendulum: '#b85c37', fan: '#c5a15a', wall: '#b85c37' })[type] || '#b85c37';
       if (type === 'spinner') {
         this.box(group, color, [0, h / 2, 0], [w, h, d]);
         this.box(group, '#fff1f6', [0, h / 2 + 0.005, 0], [Math.min(w * 0.08, 0.8), h + 0.02, d + 0.02]);
@@ -689,10 +689,6 @@ export class GameScene {
         else this.sphere(group, color, [0, h / 2, 0], [w / 2, h / 2, d / 2]);
         this.ring(group, '#fff7e8', [0, h / 2, 0], [w / 2, d / 2, Math.max(0.5, h * 0.28)], true);
         if (type === 'pendulum') this.mesh(group, 'cylinder', '#eeeaff', [0, h + 1.7, 0], [0.05, 3.4, 0.05]);
-      } else if (type === 'bouncer') {
-        this.mesh(group, 'cylinder', color, [0, h / 2, 0], [w / 2, h, d / 2]);
-        this.mesh(group, 'cylinder', '#e8fff1', [0, h + 0.015, 0], [w * 0.37, 0.04, d * 0.37]);
-        this.ring(group, WHITE, [0, h + 0.06, 0], [w * 0.42, d * 0.42, 0.6], true);
       } else if (type === 'fan') {
         // fan의 w/d/h는 충돌 벽이 아니라 바람이 부는 영역이다.
         this.mesh(group, 'box', '#dcffff', [0, 0.09, 0], [w, 0.045, d], { transparent: true, opacity: 0.25, depthWrite: false });
@@ -728,9 +724,6 @@ export class GameScene {
         const warning=this.label('압축기 주의!',CAMP.hazard,WHITE,4.8); warning.position.set(0,4.5,0); warning.visible=false;
         this.content.add(warning); group.userData.warning=warning;
         for(const side of [-1,1]) this.box(this.content,CAMP.wood,[obstacle.x+side*(w/2+.35),3,obstacle.z],[.3,6,.3]);
-      }
-      if(type==='bouncer' && (obstacle.pushX || obstacle.pushZ)) {
-        const arrow=this.label('↟',CAMP.helper,INK,1.6); arrow.position.set(0,1.4,0); group.add(arrow);
       }
       this.content.add(group);
       this.batchLocalMeshes(group);
@@ -922,7 +915,7 @@ export class GameScene {
         group.position.set(pose.x, pose.y ?? data.y ?? 0, pose.z);
         group.rotation.y = pose.rotation || 0;
         group.visible = pose.active !== false;
-        if(data.type==='cushion' || data.type==='bouncer') {
+        if(data.type==='cushion') {
           const age=(now-(this.springEffects.get(data.id)??-Infinity))/1000;
           const pulse=age<.65?Math.sin(age/.65*Math.PI)*Math.exp(-age*2):0;
           group.scale.set(1+pulse*.2,1-pulse*.35,1+pulse*.2);

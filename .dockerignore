@@ -1,5 +1,6 @@
 node_modules
 .git
+.github
 .playwright-cli
 output
 tests
@@ -8,3 +9,9 @@ tests
 
 .env
 .env.*
+
+# 디자인 검토용 시안은 로컬 `npm start`에서만 엽니다. 운영 이미지에는 넣지 않습니다.
+public/design-review.*
+public/simple-review.*
+public/result-review.*
+public/mobile-review.html

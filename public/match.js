@@ -1,5 +1,5 @@
 // 생존 동시 탈락은 같은 순위, 제한 시간까지 남은 참가자는 공동 생존입니다.
-export function roundResults(players, { rule = 'race', mode = 'single', final = false, quota = players.length, time = 0 } = {}) {
+export function roundResults(players, { rule = 'race', final = false, quota = players.length, time = 0 } = {}) {
   const rows = players.map(p => ({ id:p.id, name:p.name, character:p.character, color:p.color, connected:Boolean(p.socket) && !p.withdrawn, time:null, rank:null, status:'dnf', qualified:false, ...(rule==='survival'
     ? { status: !p.withdrawn && !p.racer.eliminated ? 'survived' : 'eliminated', time: p.racer.eliminatedAt ?? time }
     : p.racer.finished ? { status:'finished', time:p.racer.finishTime ?? time } : {}) }));
@@ -14,6 +14,14 @@ export function roundResults(players, { rule = 'race', mode = 'single', final = 
     r.rank=i && r.status===previous.status && (r.status==='survived' || Math.abs(r.time-previous.time)<.001) ? previous.rank : i+1;
     r.qualified=r.status==='survived';
   });
+  // 남은 사람 없이 마지막 참가자들이 같은 순간 떨어지면 가장 오래 버틴 참가자들이 함께 통과합니다.
+  // 결승이면 이들끼리 동률 재결승을 치릅니다. 혼자 연습한 판의 낙하는 그대로 실패입니다.
+  if (players.length > 1 && !rows.some(r => r.status === 'survived')) {
+    const withdrawn = new Set(players.filter(p => p.withdrawn).map(p => p.id));
+    const contenders = rows.filter(r => !withdrawn.has(r.id));
+    const last = Math.max(...contenders.map(r => r.time));
+    for (const r of contenders) if (Math.abs(r.time - last) < .001) r.qualified = true;
+  }
   return rows;
 }
 

@@ -6,6 +6,18 @@ services:
       NODE_ENV: production
       HOST: 0.0.0.0
       PORT: 3000
+      # Caddy가 넣어 주는 X-Forwarded-For로 실제 접속 IP별 한도를 적용합니다.
+      TRUST_PROXY: "1"
+    # 게임 서버는 디스크에 쓰지 않습니다. 권한과 자원을 최소로 제한합니다.
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 512m
+    # 2 vCPU Lightsail 기준입니다. 1 vCPU 서버에서는 1 이하로 낮춰야 컨테이너가 시작됩니다.
+    cpus: 1.5
+    pids_limit: 256
     logging:
       driver: local
       options:
@@ -15,7 +27,8 @@ services:
     image: caddy:2-alpine
     restart: unless-stopped
     depends_on:
-      - game
+      game:
+        condition: service_healthy
     environment:
       CAMP_DOMAIN: ${CAMP_DOMAIN:?Set CAMP_DOMAIN in .env}
     ports:

@@ -173,7 +173,7 @@ function onMessage(message) {
       showEntry('join', new URLSearchParams(location.search).get('room') || '');
     }
   } else if (message.type === 'left') { goHome(); }
-  else if (message.type === 'kicked') { goHome(); toast(message.message); }
+  else if (message.type === 'kicked' || message.type === 'closed') { goHome(); toast(message.message); }
 }
 
 function showEntry(mode, code = '') {

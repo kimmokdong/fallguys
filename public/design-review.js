@@ -100,7 +100,7 @@ class ReviewScene extends GameScene {
     const floor = theme.floors[STUDIES.indexOf(this.mapId)] || theme.floor;
     this.course.colors = { sky: theme.sky, floor, accent: theme.alternate };
     this.course.platforms.forEach(p => { p.color = p.type === 'ice' ? theme.floors[2] : floor; });
-    this.course.obstacles.forEach(o => { o.color = ['bouncer', 'fan'].includes(o.type) ? theme.helper : theme.hazard; });
+    this.course.obstacles.forEach(o => { o.color = o.type === 'fan' ? theme.helper : theme.hazard; });
     this.scene.background = new THREE.Color(theme.sky);
     this.scene.fog = new THREE.Fog(theme.sky, 70, 180);
     super.buildCourse();
