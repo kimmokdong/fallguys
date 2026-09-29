@@ -156,7 +156,7 @@ test('한 방의 처리 오류는 그 방만 정리하고 다른 방과 서버�
   await next.wait(ofType('welcome'));
 });
 
-test('보안 헤더와 import map 해시만 허용하는 CSP, 상태 확인 주소를 제공한다', async (t) => {
+test('보안 헤더와 import map 해시·방문 집계만 허용하는 CSP, 상태 확인 주소를 제공한다', async (t) => {
   const app = await setup(t);
   const page = await fetch(app.url + '/');
   const csp = page.headers.get('content-security-policy');
@@ -164,6 +164,8 @@ test('보안 헤더와 import map 해시만 허용하는 CSP, 상태 확인 주�
   const importMap = /<script type="importmap">([\s\S]*?)<\/script>/.exec(html)[1];
   assert.ok(csp.includes(`'sha256-${createHash('sha256').update(importMap).digest('base64')}'`), 'import map 해시 허용');
   assert.ok(!/unsafe-(inline|eval)/.test(csp.split(';').find((part) => part.trim().startsWith('script-src'))), '인라인·eval 스크립트 차단');
+  assert.ok(csp.split(';').find(part => part.trim().startsWith('script-src')).includes('https://hyunseung-lab-portal.netlify.app/project-visits.js'), '방문 집계 스크립트 파일만 허용');
+  assert.ok(csp.split(';').find(part => part.trim().startsWith('connect-src')).includes('https://rzystmknekmqyovifmhu.supabase.co/rest/v1/rpc/record_portal_visit'), '방문 집계 API 경로만 허용');
   for (const directive of ["default-src 'self'", "frame-ancestors 'none'", "object-src 'none'", "connect-src 'self' ws: wss:"]) assert.ok(csp.includes(directive), directive);
   assert.equal(page.headers.get('x-frame-options'), 'DENY');
   assert.equal(page.headers.get('referrer-policy'), 'same-origin');
