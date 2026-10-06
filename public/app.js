@@ -1,5 +1,5 @@
 import { MAPS, createCourse, availableMaps } from './world.js';
-import { CHARACTERS, COLORS } from './catalog.js';
+import { CHARACTERS, COLORS, GIMMICKS } from './catalog.js';
 import { GameScene } from './scene.js';
 import { resultOrder, revealedCount, roundPoints } from './results.js';
 import { hasNextRound, isSuccessful, placeLabel } from './match.js';
@@ -88,12 +88,37 @@ function mapOptions(settings) {
   select.value=maps.some(m=>m.id===value)?value:'random';
 }
 
+const mapFilters = { all: () => true, race: (m) => m.rules.includes('race'), survival: (m) => m.rules.includes('survival'), final: (m) => m.final };
+// 기믹 목록은 실제 코스의 발판·장애물에서 뽑으므로 맵을 고쳐도 도감 설명이 어긋나지 않습니다.
+function mapGimmicks(map) {
+  const keys = new Set();
+  for (const rule of map.rules) {
+    const course = createCourse(map.id, rule);
+    for (const p of course.platforms) keys.add(p.fake ? 'fake' : p.type === 'moving' && p.axis === 'y' ? 'lift' : p.type);
+    for (const o of course.obstacles) keys.add(o.type);
+    if (course.flood) keys.add('flood');
+  }
+  return Object.keys(GIMMICKS).filter((key) => keys.has(key));
+}
+function openMapDetail(id) {
+  const index = MAPS.findIndex((m) => m.id === id), map = MAPS[index];
+  const rules = map.rules.map((r) => r === 'survival' ? '생존' : '레이스').join(' · ');
+  const gimmicks = mapGimmicks(map).map((key) => { const [icon, name, help] = GIMMICKS[key]; return '<li><span class="gimmick-icon" aria-hidden="true">' + icon + '</span><div><b>' + name + '</b><p>' + escapeHTML(help) + '</p></div></li>'; }).join('');
+  $('#map-detail').innerHTML = '<button class="text-button map-detail-back" id="map-detail-back">← 맵 목록</button><div class="map-detail-grid"><div class="map-detail-art">' + mapArt(map, index) + '</div><div class="map-detail-info"><div class="section-kicker">MAP ' + String(index + 1).padStart(2, '0') + ' · ' + rules + '</div><h2><span aria-hidden="true">' + map.emoji + '</span> ' + escapeHTML(map.name) + '</h2><div class="map-detail-badges"><span>' + rules + '</span>' + (map.final ? '<span>결승 후보</span>' : '') + '<span aria-label="난이도 ' + map.difficulty + '">난이도 ' + '●'.repeat(map.difficulty) + '○'.repeat(3 - map.difficulty) + '</span></div><p class="map-detail-desc">' + escapeHTML(map.description) + '</p><h3>이런 기믹이 나와요</h3><ul class="gimmick-list">' + gimmicks + '</ul><button class="button primary full" id="map-detail-pick">이 맵으로 방 만들기 →</button></div></div>';
+  $('#maps-section').hidden = true; $('#map-detail').hidden = false;
+  $('#map-detail-back').addEventListener('click', closeMapDetail);
+  $('#map-detail-pick').addEventListener('click', () => { selectedMap = map.id; renderMaps(); closeMapDetail(); $('#maps-dialog').close(); $('#create-button').click(); });
+  $('#map-detail-back').focus();
+}
+function closeMapDetail() { $('#map-detail').hidden = true; $('#maps-section').hidden = false; }
+$('#maps-dialog').addEventListener('close', closeMapDetail);
+
 function renderMaps() {
-  $('#map-grid').innerHTML = MAPS.map((map, i) => filter !== 'all' && map.difficulty !== Number(filter) ? '' : `<button class="map-card ${selectedMap === map.id ? 'selected' : ''}" data-map="${map.id}" aria-pressed="${selectedMap === map.id}" aria-label="${escapeHTML(map.name)} 맵 선택"><div class="map-art">${mapArt(map, i)}<span class="map-number">MAP ${String(i + 1).padStart(2, '0')}</span>${selectedMap === map.id ? '<span class="map-picked">선택됨 ✓</span>' : ''}</div><div class="map-info"><div class="map-title"><h3>${map.name}</h3><span class="difficulty" aria-label="난이도 ${map.difficulty}">${'●'.repeat(map.difficulty)}${'○'.repeat(3 - map.difficulty)}</span></div><p>${map.subtitle}</p><div class="map-tags">${map.tags.slice(0, 2).map((t) => `<span>${t}</span>`).join('')}<i>↗</i></div></div></button>`).join('');
+  $('#map-grid').innerHTML = MAPS.map((map, i) => !(mapFilters[filter] ? mapFilters[filter](map) : map.difficulty === Number(filter)) ? '' : `<button class="map-card ${selectedMap === map.id ? 'selected' : ''}" data-map="${map.id}" aria-pressed="${selectedMap === map.id}" aria-label="${escapeHTML(map.name)} 맵 설명 보기"><div class="map-art">${mapArt(map, i)}<span class="map-number">MAP ${String(i + 1).padStart(2, '0')}</span>${selectedMap === map.id ? '<span class="map-picked">선택됨 ✓</span>' : ''}</div><div class="map-info"><div class="map-title"><h3>${map.name}</h3><span class="difficulty" aria-label="난이도 ${map.difficulty}">${'●'.repeat(map.difficulty)}${'○'.repeat(3 - map.difficulty)}</span></div><p>${map.subtitle}</p><div class="map-tags">${map.tags.slice(0, 2).map((t) => `<span>${t}</span>`).join('')}<i>↗</i></div></div></button>`).join('');
 }
 renderMaps();
 $('#map-select').insertAdjacentHTML('beforeend', MAPS.map((m) => `<option value="${m.id}">${m.emoji} ${m.name}</option>`).join(''));
-$('#map-grid').addEventListener('click', (event) => { const card = event.target.closest('[data-map]'); if (card) { selectedMap = card.dataset.map; renderMaps(); toast(`${MAPS.find((m) => m.id === selectedMap).name} 선택! 방을 만들면 이 맵으로 시작해요.`); } });
+$('#map-grid').addEventListener('click', (event) => { const card = event.target.closest('[data-map]'); if (card) openMapDetail(card.dataset.map); });
 document.querySelectorAll('[data-filter]').forEach((button) => button.addEventListener('click', () => { filter = button.dataset.filter; document.querySelectorAll('[data-filter]').forEach((b) => b.classList.toggle('active', b === button)); renderMaps(); }));
 $('#random-map').addEventListener('click', () => { selectedMap = 'random'; renderMaps(); toast('랜덤 모드! 시작할 때 모드에 맞는 맵을 골라드려요.'); });
 
