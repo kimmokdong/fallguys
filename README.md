@@ -272,7 +272,7 @@ Render 배포 후 공개 파일이 로컬 구현과 일치하는 것을 확인�
 - 바람 골짜기·카오스 크라운·폭풍 섬의 선풍기 힘을 5배로 높였습니다. 평평한 바닥의 강풍 구간 1초 검사에서 무입력 이동은 약 1.3~1.6에서 6.3~7.8 월드 단위로 증가했습니다. 반대 방향 보행으로 저항할 수 있고, 공중에서는 더 크게 밀립니다. 생존전 시작 3초 보호는 유지합니다.
 - 자동 테스트 54개 통과. 선풍기 영역·시작 보호·역방향 보행을 검사하고, 다른 장애물과 분리한 선풍기 코스 두 곳의 무낙하 완주를 확인했습니다.
 
-## AWS 운영 (최신 게임 배포: 2026-09-29)
+## AWS 운영 (최신 게임 배포: 2026-10-06)
 
 접속 주소: https://camp-jelly.43-200-53-244.nip.io/
 
@@ -285,9 +285,19 @@ Render 배포 후 공개 파일이 로컬 구현과 일치하는 것을 확인�
 
 `/opt/camp-jelly`에서 `compose.yaml`로 게임 서버 1개와 Caddy HTTPS 프록시를 실행합니다. 게임 포트 3000은 외부에 게시하지 않고 80/443만 전체 공개합니다. SSH는 Lightsail 브라우저 접속으로 제한했으며 배포에 사용한 CloudShell IP 허용은 제거했습니다. SSH 암호 접속은 비활성화되어 있습니다. 임시 SSH 인증서는 CloudShell에서만 사용하고 작업 종료 시 삭제합니다. 서버에는 GitHub 토큰이나 AWS 영구 액세스 키를 저장하지 않았습니다.
 
-Caddy 인증서는 Docker 볼륨에 보존되며 서비스는 재부팅 후 자동 시작합니다. 로그 보관 크기를 제한합니다. 48kbps 음원·바이너리 통신·정적 파일 압축과 캐시를 유지합니다. 게임 소스 배포 기준은 `b68c817`(2026-09-29)입니다. GitHub의 해당 커밋을 직접 받아 기존 음원을 유지하고 게임 컨테이너만 교체했습니다. 공유 프록시는 `/opt/camp-paint/deploy/Caddyfile.gateway`와 `proxy.override.yaml`을 사용합니다. 캠프 젤리의 HSTS만 추가했으며 다른 사이트 경로를 유지했습니다. 이전 소스·설정·이미지는 `backups/pre-b68c817.tar.gz`, `backups/Caddyfile.gateway-pre-b68c817`, `camp-jelly-game:pre-b68c817`로 보관했습니다.
+Caddy 인증서는 Docker 볼륨에 보존되며 서비스는 재부팅 후 자동 시작합니다. 로그 보관 크기를 제한합니다. 48kbps 음원·바이너리 통신·정적 파일 압축과 캐시를 유지합니다. 게임 소스 배포 기준은 `62c67d043bb528cd1e57fcf1873149a8cc2edf1d`(2026-10-06)입니다. 해당 커밋의 Git 아카이브를 전달해 기존 음원을 유지하고, 서버 안에서 새 이미지의 `npm test` 통과를 확인한 뒤 게임 컨테이너만 교체했습니다. 기존 `.env`와 공유 프록시의 `/opt/camp-paint/deploy/Caddyfile.gateway`, `/opt/camp-paint/deploy/proxy.override.yaml`은 수정하지 않았으며 Caddy를 재시작하거나 reload하지 않았습니다. 배포 전 소스는 `backups/pre-62c67d0.tar.gz`, 실행 이미지는 `camp-jelly-game:pre-62c67d0`로 백업했습니다.
+
+2026-09-29 배포에서는 캠프 젤리의 HSTS를 추가했으며 다른 사이트 경로를 유지했습니다. 당시 백업 이름은 `backups/pre-b68c817.tar.gz`, `backups/Caddyfile.gateway-pre-b68c817`, `camp-jelly-game:pre-b68c817`입니다.
 
 ### 검증
+
+#### 2026-10-06 배포 검증
+
+- 커밋 `62c67d043bb528cd1e57fcf1873149a8cc2edf1d`의 로컬 테스트와 실제 Lightsail 서버 안에서 실행한 새 game 이미지의 `npm test`가 각각 **76개 통과, 실패 0개**였습니다. 서버 테스트는 기존 game이 실행 중인 상태에서 `docker compose run --rm --no-deps -v /opt/camp-jelly/tests:/app/tests:ro game npm test`로 실행했습니다.
+- 테스트 통과 후 `docker compose up -d --no-deps --no-build --wait --wait-timeout 90 game`으로 게임 컨테이너만 교체했습니다. `docker compose ps`에서 `camp-jelly-game-1`의 `(healthy)`를 확인했고, 공개 HTTPS `/healthz`는 `{"ok":true,"rooms":0}`으로 응답했습니다. 실행 컨테이너의 server·http-assets·app·courses·index 파일 해시가 배포 소스와 일치했습니다.
+- `.env`, 기본 Caddyfile·Compose 설정, 공유 gateway·override 파일과 기존 음원의 해시가 배포 전후 같았습니다. 프록시 컨테이너의 ID·이미지·시작 시각과 실제 Caddy 설정도 그대로였습니다. 소스 백업 압축과 이미지 태그를 확인했으며, 작업 종료 후 임시 SSH 인증 파일과 CloudShell IPv4의 SSH 허용을 제거했습니다.
+
+#### 2026-09-29 검증 기록
 
 - 2026-09-29 로컬과 실제 AWS 컨테이너에서 자동 테스트 **69개 통과**. 공개 서버의 app·scene·courses·world·index·camp-ui 파일이 최신 코드와 일치하고 `/healthz`, CSP, HSTS가 적용됨을 확인했습니다.
 - 공개 서버에서 30명 입장·경기 시작·점프·1분 제한을 확인하고 테스트 방을 정리했습니다. 방문 집계 스크립트와 해당 API만 CSP에 허용했으며 Chrome 오류·경고는 없었습니다. 캠프 페인트·도서·도서 미리보기 접속도 HTTP 200으로 확인했습니다.
