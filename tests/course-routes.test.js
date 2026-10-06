@@ -4,7 +4,7 @@ import { MAPS,createCourse,createRacer,stepPlayers,platformPose,platformActive,s
 export function driveCourse(id, keepFans=false) {
   const c=createCourse(id); c.obstacles=keepFans?c.obstacles.filter(o=>o.type==='fan'):[];
   const p=Object.assign(createRacer(),{x:0,z:6});
-  const points=id==='door-festival'?[{x:0,z:24},{x:-18,z:32},{x:-18,z:51},{x:0,z:58},c.finish]:c.path.slice(1);
+  const points=id==='door-festival'?[{x:0,z:24},{x:-18,z:32},{x:-18,z:51},{x:0,z:58},c.finish]:c.waypoints||c.path.slice(1);
   let goal=0,frame=0;
   const floor=(x,z,time)=>c.platforms.some(t=>{const q=platformPose(t,time),dx=x-q.x,dz=z-q.z,cos=Math.cos(q.rotation||0),sin=Math.sin(q.rotation||0);return Math.abs(dx*cos-dz*sin)<q.w/2 && Math.abs(dx*sin+dz*cos)<q.d/2 && Math.abs(q.y-p.y)<3 && platformActive(q,time,c.collapsed)});
   for(;frame<18000&&!p.finished;frame++) {
@@ -24,7 +24,7 @@ export function driveCourse(id, keepFans=false) {
   return {id,finished:p.finished,time:(frame/90).toFixed(1),falls:p.fallCount,goal,checkpoint:p.checkpoint,position:[p.x,p.y,p.z].map(n=>n.toFixed(1))};
 }
 
-test("12개 레이스의 전체 동선을 실제 물리로 완주할 수 있다",()=>{for(const m of MAPS.filter(m=>m.rules.includes("race"))){const r=driveCourse(m.id);assert.equal(r.finished,true,JSON.stringify(r));assert.ok(r.falls<=2,JSON.stringify(r));}});
+test("16개 레이스의 전체 동선을 실제 물리로 완주할 수 있다",()=>{for(const m of MAPS.filter(m=>m.rules.includes("race"))){const r=driveCourse(m.id);assert.equal(r.finished,true,JSON.stringify(r));assert.ok(r.falls<=2,JSON.stringify(r));}});
 
 test('강한 선풍기를 켜도 바람 골짜기와 카오스 크라운의 코스를 조작으로 완주한다',()=>{
   for(const id of ['wind-valley','chaos-crown']) {

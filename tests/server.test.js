@@ -5,7 +5,7 @@ import { MAPS } from '../public/world.js';
 import { CHARACTERS, COLORS } from '../public/catalog.js';
 import { setup, client, roomWhere, ofType, prepareRoom, barrier, waitFor } from './helpers.js';
 
-test('12인 탈락전: 절반 통과, 탈락한 방장 재접속·관전·다음 판 시작, 마지막 한 명 우승',async t=>{
+test('12인 탈락전: 1라운드 70% 통과, 탈락한 방장 재접속·관전·다음 판 시작, 마지막 한 명 우승',async t=>{
   const app=await setup(t),host=await client(app.url);
   host.send({type:'create',name:'관전 방장'}); const welcome=await host.wait(ofType('welcome'));
   assert.match(welcome.code,/^[0-9]{6}$/);
@@ -14,10 +14,10 @@ test('12인 탈락전: 절반 통과, 탈락한 방장 재접속·관전·다음
   host.send({type:'settings',matchMode:'elimination',mapId:'jelly-garden',duration:60});
   await host.wait(roomWhere(r=>r.settings.duration===60)); await prepareRoom(guests,host,12);
   host.send({type:'start'}); await host.wait(roomWhere(r=>r.phase==='playing'));
-  const room=app.rooms.get(welcome.code); assert.equal(room.quota,6);
-  guests.slice(0,6).forEach((p,i)=>Object.assign(room.players.get(p.id).racer,{finished:true,finishTime:10+i}));
+  const room=app.rooms.get(welcome.code); assert.equal(room.quota,9);
+  guests.slice(0,9).forEach((p,i)=>Object.assign(room.players.get(p.id).racer,{finished:true,finishTime:10+i}));
   const r1=(await host.wait(roomWhere(r=>r.phase==='results'&&r.round===1))).room;
-  assert.equal(r1.matchOver,false); assert.equal(r1.results.filter(r=>r.qualified).length,6); assert.equal(r1.players.find(p=>p.id===welcome.id).eliminated,true);
+  assert.equal(r1.matchOver,false); assert.equal(r1.results.filter(r=>r.qualified).length,9); assert.equal(r1.players.find(p=>p.id===welcome.id).eliminated,true);
   host.socket.terminate(); const restored=await client(app.url); restored.send({type:'join',code:welcome.code,token:welcome.token});
   await restored.wait(ofType('welcome')); const rejoined=(await restored.wait(roomWhere(r=>r.phase==='results'))).room;
   assert.equal(rejoined.players.find(p=>p.id===welcome.id).eliminated,true);
@@ -408,7 +408,7 @@ test('서버의 다음 레이스는 누적 하위권·직전 최하위 통과자
  for(const mode of ['series','elimination']) {
   const app=await setup(t),host=await client(app.url);
   host.send({type:'create',name:'출발 배치 검증'});const welcome=await host.wait(ofType('welcome'));
-  const guests=[],total=mode==='series'?7:14;
+  const guests=[],total=mode==='series'?7:10;
   for(let i=1;i<total;i++){const p=await client(app.url);p.send({type:'join',code:welcome.code,name:'참가자'+i});await p.wait(ofType('welcome'));guests.push(p);}
   host.send({type:'settings',matchMode:mode,mapId:'jelly-garden'});
   await host.wait(roomWhere(r=>r.settings.matchMode===mode&&r.settings.mapId==='jelly-garden'));

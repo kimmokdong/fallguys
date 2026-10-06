@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { MAPS, createCourse, createRacer, stepPlayer, stepPlayers, obstaclePose, platformActive, platformTiming, platformPose, supportAt, conveyorVelocity } from '../public/world.js';
+import { MAPS, createCourse, createRacer, stepPlayer, stepPlayers, obstaclePose, platformActive, platformTiming, platformPose, supportAt, conveyorVelocity, floodLevel } from '../public/world.js';
 
 test('빙판은 관성과 드리프트가 크고, 벨트는 정지·역주행·정주행 모두 같은 방향으로 운반한다',()=>{
   const course=type=>({...createCourse('jelly-garden'),platforms:[{id:'p0',x:0,z:0,y:0,w:200,d:200,type,axis:'z',speed:7}],obstacles:[],checkpoints:[],finish:{x:90,z:90,y:0,radius:1}});
@@ -68,16 +68,16 @@ test('회전 원판은 서 있는 사람을 원을 따라 운반하고 원 밖�
   stepPlayers([airborne],[{}],c,2,1/90);assert.equal(airborne.x,0,'공중에서는 원판에 끌려가지 않음');
 });
 
-test('16개 맵의 지원 규칙, 30명 출발 지점과 서로 다른 동선', () => {
-  assert.equal(MAPS.length,16); assert.equal(new Set(MAPS.map(m=>m.id)).size,16);
-  assert.equal(MAPS.filter(m=>m.rules.includes('race')).length,12);
-  assert.equal(MAPS.filter(m=>m.rules.includes('survival')).length,6);
+test('24개 맵의 지원 규칙, 30명 출발 지점과 서로 다른 동선', () => {
+  assert.equal(MAPS.length,24); assert.equal(new Set(MAPS.map(m=>m.id)).size,24);
+  assert.equal(MAPS.filter(m=>m.rules.includes('race')).length,16);
+  assert.equal(MAPS.filter(m=>m.rules.includes('survival')).length,10);
   const signatures=new Set();
   for(const map of MAPS) for(const rule of map.rules) {
     const course=createCourse(map.id,rule);
     assert.equal(course.rule,rule);
     const floorsOnly={...course,obstacles:[]};
-    for(let i=0;i<30;i++) { const p=createRacer(i); stepPlayer(p,{},floorsOnly,0,1/90); assert.equal(p.grounded,true,map.id+' 출발 '+i); }
+    for(let i=0;i<30;i++) { const p=createRacer(i,30,course.spawnY||0); stepPlayer(p,{},floorsOnly,0,1/90); assert.equal(p.grounded,true,map.id+' 출발 '+i); }
     assert.equal(new Set(course.platforms.map(p=>p.id)).size,course.platforms.length);
     if(rule==='race') {
       for(const n of [...course.checkpoints,course.finish]) { const p=Object.assign(createRacer(),n); stepPlayer(p,{},floorsOnly,0,1/90); assert.equal(p.grounded,true,map.id+' 깃발 바닥'); }
@@ -85,7 +85,7 @@ test('16개 맵의 지원 규칙, 30명 출발 지점과 서로 다른 동선', 
     } else assert.equal(course.finish,null);
     for(const o of course.obstacles) for(const time of [0,1,10,60]) assert.ok(Object.values(obstaclePose(o,time)).every(v=>typeof v==='boolean'||Number.isFinite(v)));
   }
-  assert.equal(signatures.size,12);
+  assert.equal(signatures.size,16);
 });
 
 test('이동, 대각선 속도, 점프 에지, 다이브, 낙하 복귀와 완주 판정', () => {
@@ -298,4 +298,78 @@ test('인원이 모자란 앞줄은 가운데에 모여 서고 가득 찬 줄은
     const front=racers.filter(r=>r.z===racers.at(-1).z);
     assert.ok(Math.abs(front.reduce((sum,r)=>sum+r.x,0))<1e-9,total+'명 앞줄 좌우 균형');
   }
+});
+
+// 새 기믹은 평평한 시험장 위에 하나씩 올려 실제 물리로 확인합니다.
+const arena=(platforms=[],obstacles=[],extra={})=>({...createCourse('jelly-garden'),rule:'race',platforms:[{id:'p0',x:0,z:0,y:0,w:200,d:200,type:'normal'},...platforms],obstacles,checkpoints:[],finish:{x:95,z:95,y:0,radius:1},bounds:{x:300,minZ:-300,maxZ:300},...extra});
+const simulate=(p,c,frames,input={},start=0)=>{for(let i=0;i<frames;i++)stepPlayers([p],[typeof input==='function'?input(i):input],c,start+(i+1)/90,1/90);return p;};
+
+test('부스터는 패드 방향으로 멀리 날려 보내고, 진흙은 달리기와 점프를 둔하게 한다',()=>{
+  const c=arena([{id:'p1',x:0,z:0,y:.04,w:4,d:4,type:'boost',dirX:1,dirZ:0,power:19}]);
+  const p=simulate(Object.assign(createRacer(),{x:0,z:0}),c,54);
+  assert.ok(p.x>6,'0.6초 만에 6m 이상'); assert.equal(p.springKind,3); assert.equal(p.springSource,'p1'); assert.ok(Math.abs(p.z)<.5);
+  const runner=type=>simulate(Object.assign(createRacer(),{x:0,z:-20}),arena(type?[{id:'p1',x:0,z:0,y:.03,w:60,d:60,type}]:[]),90,{z:1});
+  const normal=runner(),slow=runner('mud');
+  assert.equal(slow.surface,6); assert.ok(slow.z+20<(normal.z+20)*.6,'진흙 위에서는 60% 미만 거리');
+  const jump=type=>{const p=Object.assign(createRacer(),{x:0,z:0,y:type?.03:0});let top=0;simulate(p,arena(type?[{id:'p1',x:0,z:0,y:.03,w:60,d:60,type}]:[]),60,i=>{top=Math.max(top,p.y);return {jump:i<2};});return top;};
+  assert.ok(jump('mud')<jump()*.7,'진흙 점프가 낮다');
+});
+
+test('펀치 벽은 경고 후 튀어나올 때만 세게 날리고, 들어가 있을 때는 벽이다',()=>{
+  const puncher={id:'o0',type:'puncher',x:3,z:0,y:0,w:3,d:3,h:2.4,axis:'x',dir:-1,range:5,period:3,phase:0,speed:1};
+  assert.equal(obstaclePose(puncher,1.6).warning,true); assert.equal(obstaclePose(puncher,1).warning,false);
+  assert.equal(obstaclePose(puncher,1).x,3); assert.ok(Math.abs(obstaclePose(puncher,2.6).x+2)<1e-9,'완전히 튀어나오면 range만큼 이동');
+  const c=arena([],[puncher]);
+  const hit=simulate(Object.assign(createRacer(),{x:0,z:0}),c,30,{},2.3);
+  assert.ok(hit.x<-4,'주먹에 맞아 크게 밀려남');
+  const calm=simulate(Object.assign(createRacer(),{x:0,z:0}),c,60,{x:1},0);
+  assert.ok(calm.x<1.1 && calm.x>.5,'들어가 있을 때는 막기만 함'); assert.ok(Math.abs(calm.vx)<1);
+});
+
+test('소용돌이는 가만히 있으면 가운데로 끌고 바깥으로 달리면 빠져나온다',()=>{
+  const c=arena([],[{id:'o0',type:'vortex',x:0,z:0,y:0,w:30,d:30,h:3,force:55,speed:1}]);
+  const idle=simulate(Object.assign(createRacer(),{x:10,z:0}),c,90,{},5);
+  assert.ok(Math.hypot(idle.x,idle.z)<8,'1초 만에 2m 이상 끌려감');
+  const escape=simulate(Object.assign(createRacer(),{x:10,z:0}),c,180,{x:1},5);
+  assert.ok(escape.x>15,'바깥으로 달리면 빠져나옴');
+  const outside=simulate(Object.assign(createRacer(),{x:20,z:0}),c,90,{},5);
+  assert.equal(outside.x,20);
+});
+
+test('가짜 발판은 밟자마자 떨어지고 다시 숨으며 겉모습 정보도 숨긴다',()=>{
+  const c=createCourse('tiptoe-bridge'), fakes=c.platforms.filter(t=>t.fake), real=c.platforms.filter(t=>t.w===4.8&&!t.fake);
+  assert.ok(fakes.length>70 && real.length>=36);
+  assert.ok(fakes.every(t=>t.type==='collapse'&&t.delay<=.15&&t.recover>0));
+  const tile=fakes[0], p=Object.assign(createRacer(),{x:tile.x,z:tile.z});
+  c.obstacles=[];
+  simulate(p,c,40);
+  assert.ok(p.y<-.5,'0.45초 안에 발밑이 꺼져 떨어짐');
+  assert.equal(platformActive(tile,c.collapsed[tile.id]+tile.delay+tile.recover+.01,c.collapsed),true,'시간이 지나면 다시 나타남');
+});
+
+test('엘리베이터는 탄 사람을 위층까지 올렸다가 다시 내린다',()=>{
+  const lift={id:'p1',x:0,z:0,y:3,w:8,d:8,type:'moving',axis:'y',range:3,speed:1,phase:-Math.PI/2};
+  const c=arena([lift]); c.platforms[0]={...c.platforms[0],x:50};
+  const p=Object.assign(createRacer(),{x:0,z:0,y:0,supportId:'p1'});
+  let top=0,grounded=0;
+  for(let i=0;i<566;i++){stepPlayers([p],[{}],c,(i+1)/90,1/90);top=Math.max(top,p.y);grounded+=p.grounded;}
+  assert.ok(top>5.9,'꼭대기 높이까지'); assert.ok(p.y<.3,'한 바퀴 뒤 바닥으로'); assert.ok(grounded>550,'타는 동안 계속 발을 딛고 있음');
+});
+
+test('용암은 시간에 따라 차오르고 닿으면 탈락, 3층 탑은 아래층이 받아 준다',()=>{
+  const lava=createCourse('lava-rise','survival');
+  assert.equal(floodLevel(lava,0),lava.flood.from); assert.ok(floodLevel(lava,40)>floodLevel(lava,20)); assert.ok(floodLevel(lava,999)<=lava.flood.max);
+  lava.obstacles=[];
+  const low=Object.assign(createRacer(),{x:0,z:3});
+  simulate(low,lava,90,{},25);
+  assert.equal(low.eliminated,true,'바깥 단은 용암에 잠김');
+  const top=Object.assign(createRacer(),{x:0,z:27,y:4.5});
+  simulate(top,lava,90,{},58);
+  assert.equal(top.eliminated,false,'꼭대기는 끝까지 안전');
+  const tower=createCourse('triple-drop','survival');
+  assert.equal(tower.spawnY,12);
+  const p=createRacer(0,30,tower.spawnY);
+  tower.collapsed[supportAt(tower,p.x,p.z,5,12.1).id]=0;
+  simulate(p,tower,120,{},5);
+  assert.equal(p.eliminated,false); assert.equal(p.y,6,'가운데층에 착지');
 });

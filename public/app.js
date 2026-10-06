@@ -75,7 +75,7 @@ function mapProjection(course) {
 }
 function mapArt(map, index, course = createCourse(map.id)) {
   const project=mapProjection(course),scale=project({x:0,z:0}).scale;
-  const tiles=course.platforms.map(p=>{ const n=project(p); return '<rect x="'+(-p.w*scale/2)+'" y="'+(-p.d*scale/2)+'" width="'+p.w*scale+'" height="'+p.d*scale+'" rx="1" transform="translate('+n.x+' '+n.y+') rotate('+(-(p.rotation||0)*180/Math.PI)+')" fill="'+(['collapse','disappear'].includes(p.type)?'#c5a15a':map.colors.floor)+'" stroke="#344839" stroke-width=".7"/>'; }).join('');
+  const tiles=course.platforms.map(p=>{ const n=project(p); return '<rect x="'+(-p.w*scale/2)+'" y="'+(-p.d*scale/2)+'" width="'+p.w*scale+'" height="'+p.d*scale+'" rx="1" transform="translate('+n.x+' '+n.y+') rotate('+(-(p.rotation||0)*180/Math.PI)+')" fill="'+(p.fake?map.colors.floor:['collapse','disappear','sink'].includes(p.type)?'#c5a15a':p.type==='boost'?'#d9a13c':p.type==='mud'?'#5a3f2b':map.colors.floor)+'" stroke="#344839" stroke-width=".7"/>'; }).join('');
   const flags=course.checkpoints.map((p,i)=>{const n=project(p);return '<circle cx="'+n.x+'" cy="'+n.y+'" r="6" fill="#ead9a4"/><text x="'+n.x+'" y="'+(n.y+3)+'" text-anchor="middle" fill="#283f31" font-size="8">'+(i+1)+'</text>';}).join('');
   const f=course.finish?project(course.finish):null;
   const start=project({x:0,z:6});
@@ -351,7 +351,7 @@ function renderRoom(previous) {
     $('#match-mode').value = room.settings.matchMode;
     $('#round-rule').value=room.settings.roundRule; $('#rule-settings').hidden=room.settings.matchMode!=='single';
     $('#map-select-label').textContent=room.settings.matchMode==='elimination'?'첫 라운드 맵':'플레이할 맵';
-    $('#mode-help').textContent=room.settings.matchMode==='elimination'?'레이스 상위 절반 · 생존은 끝까지 버티기. 5명 이하가 되면 결승! 이후 맵은 자동으로 골라요.':room.settings.matchMode==='series'?'레이스 맵으로 매판 같은 배점이에요.':'레이스는 완주 순위, 생존은 버틴 시간으로 겨뤄요.';
+    $('#mode-help').textContent=room.settings.matchMode==='elimination'?'통과 인원 1라운드 70% · 2라운드 60% · 이후 절반. 5명 이하가 되면 결승! 이후 맵은 자동으로 골라요.':room.settings.matchMode==='series'?'레이스 맵으로 매판 같은 배점이에요.':'레이스는 완주 순위, 생존은 버틴 시간으로 겨뤄요.';
     $('#rounds-select').value = room.settings.rounds || 3;
     $('#rounds-settings').hidden = room.settings.matchMode !== 'series';
     document.querySelectorAll('#settings-form select').forEach(s => { s.disabled = !host; });
@@ -442,6 +442,7 @@ function renderRaceState() {
   if (leadersHTML !== lastLeadersHTML) { $('#race-leaders').innerHTML = leadersHTML; lastLeadersHTML = leadersHTML; }
   const passed=racers.filter(p=>p.finished).length;
   $('#round-objective').textContent=room.rule==='survival'?(room.isFinal?'마지막 한 명이 우승!':'떨어지면 탈락 · '+alive.length+'명 생존'):knockout?(room.isFinal?'가장 먼저 왕관에 도착하세요!':'통과 '+passed+' / '+room.quota+'명'):'번호 깃발을 지나 결승선까지!';
+  if(room.rule==='survival' && activeCourse?.flood && latestState.time>=activeCourse.flood.start) $('#round-objective').textContent+=' · 용암 상승 중!';
   $('#progress-start').textContent=room.rule==='survival'?'생존':'출발'; $('#progress-end').textContent=room.rule==='survival'?'시간까지 버티기':'⚑ 도착';
   $('#race-progress').style.width=room.rule==='survival'?Math.min(100,latestState.time/room.settings.duration*100)+'%':Math.round((me?.progress||0)*100)+'%';
   $('#race-status').hidden=true;

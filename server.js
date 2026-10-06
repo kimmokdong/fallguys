@@ -6,7 +6,7 @@ import { randomBytes, randomInt, randomUUID } from 'node:crypto';
 import { WebSocketServer, WebSocket } from 'ws';
 import { MAPS, createCourse, createRacer, stepPlayers } from './public/world.js';
 import { CHARACTERS, COLORS } from './public/catalog.js';
-import { roundResults, hasNextRound, startingSlots } from './public/match.js';
+import { roundResults, hasNextRound, startingSlots, eliminationQuota } from './public/match.js';
 import { addRoundScores } from './public/results.js';
 import { StateEncoder } from './public/network.js';
 import { serveAsset, SECURITY_HEADERS } from './http-assets.js';
@@ -296,14 +296,14 @@ export function createGameServer({ reconnectGraceMs = 20_000, countdownMs = 6_00
     const unplayed = maps.filter((m) => !room.playedMaps.includes(m.id)), pool = unplayed.length ? unplayed : maps;
     room.mapId = pool[Math.floor(Math.random() * pool.length)].id;
     room.playedMaps.push(room.mapId); room.course = createCourse(room.mapId, room.rule);
-    room.quota = knockout ? (room.isFinal ? 1 : Math.ceil(participants.length / 2)) : participants.length;
+    room.quota = knockout ? (room.isFinal ? 1 : eliminationQuota(participants.length, room.round)) : participants.length;
     const slots = startingSlots(participants, { mode: room.settings.matchMode, rule: room.rule, round: room.round, scores: room.scores, results: room.results });
     room.phase = 'countdown'; room.startsAt = now + countdownMs; room.endsAt = room.startsAt + room.settings.duration * 1000; room.resultsAt = null; room.results = [];
     room.resultsSignature = ''; room.resultsKey = '[]'; room.activeAt = now;
     room.tieBreak = false;
     if (room.settings.characterMode === 'random' && (!knockout || room.round === 1)) assignCharacters(room);
     for (const p of room.players.values()) { p.racer = null; p.input = { ...EMPTY_INPUT }; p.pendingJump = false; p.pendingDive = false; }
-    participants.forEach((p) => { p.racer = createRacer(slots.get(p.id), participants.length); p.withdrawn = false; });
+    participants.forEach((p) => { p.racer = createRacer(slots.get(p.id), participants.length, room.course.spawnY || 0); p.withdrawn = false; });
     room.roundPlayers = participants;
     announce(room); broadcastState(room, now, true);
   }

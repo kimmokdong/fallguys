@@ -8,6 +8,7 @@ export const PHYSICS = Object.freeze({
   gravity: 25, jumpSpeed: 10.4, coyoteTime: .1, jumpBuffer: .12,
   diveSpeed: 18, diveLift: 5.5, diveAirLift: 1, diveCooldown: 1.2,
   iceDrag: .65, iceForce: 8, iceMaxSpeed: 11.5,
+  boostPower: 19, boostLift: 4.5, mudSpeed: .45, mudJump: .75, punchKnockback: 20,
   bodyRadius: .54, bodySpacing: 1.3, bodyHeight: 1.65, maxPushImpulse: 9, pushFactor: .56,
   platformThickness: .8, supportMargin: .15, stepTolerance: .3, groundSnap: .1,
   cushionBase: 10, cushionGain: 1.05, cushionMax: 25, cushionMaxSpeed: 28, bumperKnockback: 15, hazardKnockback: 10,
@@ -51,6 +52,11 @@ export function platformActive(platform, timeSeconds, collapsed) {
   return platformTiming(platform, timeSeconds, collapsed).active;
 }
 
+export function floodLevel(course, t) {
+  const f = course.flood;
+  return f ? Math.min(f.max, f.from + Math.max(0, t - f.start) * f.rate) : -Infinity;
+}
+
 export function platformPose(platform, timeSeconds) {
   if (platform.type === 'rotating') return { ...platform, rotation: (platform.rotation || 0) + timeSeconds * platform.speed };
   if (platform.type !== 'moving') return platform;
@@ -69,6 +75,16 @@ function platformById(course, id) {
 // 물리 이동과 바닥 화살표가 같은 월드 방향을 사용합니다.
 export function conveyorVelocity(platform) {
   return { x: platform.axis === 'x' ? platform.speed : 0, z: platform.axis === 'x' ? 0 : platform.speed };
+}
+
+// 가속 패드는 패드 방향으로 낮게 튕겨 보내고, 옆 방향 속도는 일부만 남깁니다.
+function boost(player, pad) {
+  const power = pad.power || PHYSICS.boostPower, dx = pad.dirX || 0, dz = pad.dirZ ?? 1;
+  const along = player.vx * dx + player.vz * dz;
+  player.vx = (player.vx - along * dx) * .3 + dx * power;
+  player.vz = (player.vz - along * dz) * .3 + dz * power;
+  player.vy = PHYSICS.boostLift; player.bounceCooldown = .6;
+  spring(player, pad, 3);
 }
 
 function spring(player, source, kind) {
@@ -92,22 +108,30 @@ export function obstaclePose(obstacle, timeSeconds) {
     else x += Math.sin(angle) * obstacle.range;
   }
   let warning = false;
+  let extension = 0;
+  if (obstacle.type === 'puncher') {
+    const q = ((timeSeconds + (obstacle.phase || 0)) % obstacle.period + obstacle.period) % obstacle.period;
+    warning = q >= obstacle.period - 1.6 && q < obstacle.period - .6;
+    extension = q < obstacle.period - .6 ? 0 : q < obstacle.period - .45 ? (q - obstacle.period + .6) / .15 : q < obstacle.period - .15 ? 1 : (obstacle.period - q) / .15;
+    if (obstacle.axis === 'z') z += extension * obstacle.range * obstacle.dir;
+    else x += extension * obstacle.range * obstacle.dir;
+  }
   if (obstacle.type === 'crusher') {
     const phase = ((timeSeconds + obstacle.phase) % obstacle.period + obstacle.period) % obstacle.period;
     warning = phase >= obstacle.period - 1;
     y += phase < 1 ? 0 : phase < 1.6 ? (phase - 1) / .6 * obstacle.range : obstacle.range;
   }
-  return { x, y, z, rotation, active: true, warning };
+  return { x, y, z, rotation, active: true, warning, extension };
 }
 
 // 한 줄은 6칸입니다. 인원이 모자란 줄은 가운데에 모아 세워 좌우 치우침을 없앱니다.
-export function createRacer(index = 0, total = 30) {
+export function createRacer(index = 0, total = 30, spawnY = 0) {
   const slot = clamp(Math.floor(Number(index) || 0), 0, 29);
   const count = clamp(Math.floor(Number(total) || 30), slot + 1, 30);
   const row = Math.floor(slot / 6), inRow = Math.min(6, count - row * 6);
   const x = (slot % 6 - (inRow - 1) / 2) * 2.4;
   const z = 2 + row * 2.1;
-  return { x, y: 0, z, vx: 0, vy: 0, vz: 0, yaw: 0, grounded: true, touched: false, checkpoint: -1, progress: 0, finished: false, eliminated: false, fallCount: 0, spawnX: x, spawnZ: z, jumpHeld: false, diveHeld: false, diveCooldown: 0, hitCooldown: 0, bounceCooldown: 0, bumpTime: 0, ghostTime: 0, coyoteTime: 0, jumpBuffer: 0, jumpCount: 0, landCount: 0, supportId: null, surface: 0, springControl: 0, springCount: 0 };
+  return { x, y: spawnY, z, vx: 0, vy: 0, vz: 0, yaw: 0, grounded: true, touched: false, checkpoint: -1, progress: 0, finished: false, eliminated: false, fallCount: 0, spawnX: x, spawnZ: z, jumpHeld: false, diveHeld: false, diveCooldown: 0, hitCooldown: 0, bounceCooldown: 0, bumpTime: 0, ghostTime: 0, coyoteTime: 0, jumpBuffer: 0, jumpCount: 0, landCount: 0, supportId: null, surface: 0, springControl: 0, springCount: 0 };
 }
 
 export function supportAt(course, x, z, timeSeconds, ceiling = Infinity) {
@@ -158,7 +182,9 @@ export function stepPlayer(player, input = {}, course, timeSeconds, delta, settl
   player.coyoteTime = player.grounded ? P.coyoteTime : Math.max(0, (player.coyoteTime || 0) - dt);
   player.jumpBuffer = jump ? P.jumpBuffer : Math.max(0, (player.jumpBuffer || 0) - dt);
   const ice = player.grounded && floor.type === 'ice';
-  player.surface = player.grounded ? ({ ice: 1, conveyor: 2, rotating: 3, trampoline: 4 }[floor.type] || 0) : 0;
+  player.surface = player.grounded ? ({ ice: 1, conveyor: 2, rotating: 3, trampoline: 4, boost: 5, mud: 6 }[floor.type] || 0) : 0;
+  const mud = player.grounded && floor.type === 'mud';
+  const runSpeed = mud ? P.runSpeed * P.mudSpeed : P.runSpeed, jumpSpeed = mud ? P.jumpSpeed * P.mudJump : P.jumpSpeed;
   const acceleration = player.grounded ? P.groundAcceleration : player.springControl > 0 ? P.springAcceleration : P.airAcceleration;
   const smoothing = 1 - Math.exp(-acceleration * dt);
   if (ice) {
@@ -169,12 +195,13 @@ export function stepPlayer(player, input = {}, course, timeSeconds, delta, settl
     const speed = Math.hypot(player.vx, player.vz);
     if (speed > P.iceMaxSpeed) { player.vx *= P.iceMaxSpeed / speed; player.vz *= P.iceMaxSpeed / speed; }
   } else {
-    player.vx += (ix * P.runSpeed - player.vx) * smoothing;
-    player.vz += (iz * P.runSpeed - player.vz) * smoothing;
+    player.vx += (ix * runSpeed - player.vx) * smoothing;
+    player.vz += (iz * runSpeed - player.vz) * smoothing;
   }
   if (magnitude > 0.1) player.yaw = Math.atan2(ix, iz);
-  if (player.jumpBuffer > 0 && player.coyoteTime > 0) {
-    player.vy = P.jumpSpeed; player.grounded = false; player.coyoteTime = 0; player.jumpBuffer = 0; player.jumpCount++;
+  if (player.grounded && floor.type === 'boost' && player.bounceCooldown <= 0) boost(player, floor);
+  else if (player.jumpBuffer > 0 && player.coyoteTime > 0) {
+    player.vy = jumpSpeed; player.grounded = false; player.coyoteTime = 0; player.jumpBuffer = 0; player.jumpCount++;
   }
   if (dive && player.diveCooldown <= 0) {
     const direction = magnitude > 0.1 ? Math.atan2(ix, iz) : player.yaw;
@@ -189,7 +216,18 @@ export function stepPlayer(player, input = {}, course, timeSeconds, delta, settl
   }
   const sheltered = course.rule === 'survival' && timeSeconds < P.survivalGrace;
   for (const obstacle of course.obstacles) {
-    if (obstacle.type !== 'fan' || sheltered) continue;
+    if (sheltered) break;
+    if (obstacle.type === 'vortex') {
+      // 소용돌이는 가운데로 끌어당기며 함께 돌립니다. 바깥으로 달리면 빠져나올 수 있습니다.
+      const dx = obstacle.x - player.x, dz = obstacle.z - player.z, distance = Math.hypot(dx, dz), radius = obstacle.w / 2;
+      if (distance > .05 && distance < radius && player.y < (obstacle.y || 0) + obstacle.h) {
+        const pull = obstacle.force * (.55 + .45 * (1 - distance / radius)), swirl = obstacle.swirl ?? obstacle.force * .4;
+        player.vx += (dx / distance * pull - dz / distance * swirl) * dt;
+        player.vz += (dz / distance * pull + dx / distance * swirl) * dt;
+      }
+      continue;
+    }
+    if (obstacle.type !== 'fan') continue;
     if (Math.abs(player.x - obstacle.x) < obstacle.w / 2 && Math.abs(player.z - obstacle.z) < obstacle.d / 2 && player.y < obstacle.h) {
       const force = obstacle.force * (0.7 + 0.3 * Math.sin(timeSeconds * obstacle.speed + obstacle.phase));
       if (obstacle.axis === 'x') player.vx += force * dt;
@@ -212,7 +250,8 @@ export function stepPlayer(player, input = {}, course, timeSeconds, delta, settl
       player.vx += landing.pushX || 0; player.vz += landing.pushZ || 0;
       player.bounceCooldown = .75;
       spring(player, landing, 2);
-    } else if (player.jumpBuffer > 0) {
+    } else if (landing.type === 'boost' && player.bounceCooldown <= 0) boost(player, landing);
+    else if (player.jumpBuffer > 0) {
       player.vy = P.jumpSpeed; player.grounded = false; player.coyoteTime = 0; player.jumpBuffer = 0; player.jumpCount++;
     }
   }
@@ -233,7 +272,7 @@ function resolveCourseContacts(player, course, timeSeconds, hazards = true) {
   }
   if (course.rule === 'survival' && timeSeconds < P.survivalGrace) return moved;
   for (const obstacle of course.obstacles) {
-    if (obstacle.type === 'fan') continue;
+    if (obstacle.type === 'fan' || obstacle.type === 'vortex') continue;
     const pose = obstaclePose(obstacle, timeSeconds);
     if (player.y >= pose.y + obstacle.h || player.y + P.bodyHeight <= pose.y) continue;
     const incomingX = player.vx, incomingZ = player.vz;
@@ -249,12 +288,16 @@ function resolveCourseContacts(player, course, timeSeconds, hazards = true) {
       spring(player, obstacle, 1);
       continue;
     }
-    if (hazards && hit && obstacle.type !== 'wall' && obstacle.type !== 'gate' && player.hitCooldown <= 0) {
-      const knockback = obstacle.type === 'bumper' ? P.bumperKnockback : P.hazardKnockback;
+    // 펀치 벽은 튀어나오는 순간에만 세게 날리고, 들어가 있을 때는 평범한 벽입니다.
+    const punching = obstacle.type === 'puncher' && pose.extension > .3;
+    if (hazards && hit && obstacle.type !== 'wall' && obstacle.type !== 'gate' && (obstacle.type !== 'puncher' || punching) && player.hitCooldown <= 0) {
+      const knockback = punching ? obstacle.force || P.punchKnockback : obstacle.type === 'bumper' ? P.bumperKnockback : P.hazardKnockback;
       player.vx += hit.x * knockback;
       player.vz += hit.z * knockback;
-      player.vy = Math.max(player.vy, 4.5); player.grounded = false; player.hitCooldown = 0.3;
+      player.vy = Math.max(player.vy, punching ? 6 : 4.5); player.grounded = false; player.hitCooldown = 0.3;
       player.coyoteTime = 0;
+      // 펀치에 맞으면 쿠션처럼 공중 조작을 줄여 실제로 멀리 날아갑니다.
+      if (punching) spring(player, obstacle, 1);
     }
   }
   return moved;
@@ -288,7 +331,8 @@ function settlePlayer(player, course, timeSeconds) {
     }
   }
   const bounds=course.bounds || {x:70,minZ:-30,maxZ:course.length+30};
-  if (player.y < (course.rule==='survival' ? P.survivalFloor : P.raceFloor) || Math.abs(player.x)>bounds.x || player.z<bounds.minZ || player.z>bounds.maxZ) {
+  const floorY = course.rule==='survival' ? Math.max(course.floorY ?? P.survivalFloor, floodLevel(course, timeSeconds)) : P.raceFloor;
+  if (player.y < floorY || Math.abs(player.x)>bounds.x || player.z<bounds.minZ || player.z>bounds.maxZ) {
     if (course.rule === 'survival') { player.eliminated=true; player.eliminatedAt=timeSeconds; player.vx=0; player.vz=0; return; }
     const point = course.checkpoints[player.checkpoint] || { x: player.spawnX, y: 0, z: player.spawnZ };
     player.x = point.x; player.y = point.y + .15; player.z = point.z;

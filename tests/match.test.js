@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { roundResults, hasNextRound, startingSlots } from '../public/match.js';
+import { roundResults, hasNextRound, startingSlots, eliminationQuota } from '../public/match.js';
 import { availableMaps } from '../public/world.js';
 const players=n=>Array.from({length:n},(_,i)=>({id:String(i),name:'젤리'+i,racer:{finished:false,eliminated:false},socket:{}}));
 
@@ -21,8 +21,8 @@ test('생존은 실제 버틴 시간으로 순위를 정하고 시간까지 살�
   assert.equal(roundResults(players(8),{rule:'survival',quota:4,time:60}).filter(r=>r.qualified).length,8);
 });
 test('경기 형식에 맞는 맵만 선택하고 결승 종료 후에는 다음 판을 열지 않는다',()=>{
-  assert.equal(availableMaps('single','race').length,12);
-  assert.equal(availableMaps('single','survival').length,6);
+  assert.equal(availableMaps('single','race').length,16);
+  assert.equal(availableMaps('single','survival').length,10);
   assert.ok(availableMaps('series','survival').every(m=>m.rules.includes('race')));
   assert.equal(hasNextRound({settings:{matchMode:'elimination'},matchOver:true}),false);
   assert.equal(hasNextRound({settings:{matchMode:'elimination'},matchOver:false}),true);
@@ -76,4 +76,10 @@ test('생존전에서 남은 사람 없이 동시에 떨어지면 가장 오래 
   const left=players(3); left[0].withdrawn=true;
   [[0,30],[1,20],[2,20]].forEach(([i,t])=>Object.assign(left[i].racer,{eliminated:true,eliminatedAt:t}));
   assert.deepEqual(roundResults(left,{rule:'survival',time:30}).filter(r=>r.qualified).map(r=>r.id).sort(),['1','2'],'중도 퇴장자는 제외');
+});
+test('탈락전 통과 인원은 1라운드 70% · 2라운드 60% · 이후 절반이며 매판 최소 한 명은 탈락한다',()=>{
+  assert.equal(eliminationQuota(30,1),21); assert.equal(eliminationQuota(21,2),13); assert.equal(eliminationQuota(13,3),7);
+  assert.equal(eliminationQuota(12,1),9); assert.equal(eliminationQuota(9,2),6); assert.equal(eliminationQuota(6,1),5);
+  assert.equal(eliminationQuota(2,1),1); assert.equal(eliminationQuota(1,1),1);
+  for(let n=2;n<=30;n++) for(const r of [1,2,3,6]) { const q=eliminationQuota(n,r); assert.ok(q>=1 && q<n,n+'명 '+r+'R'); }
 });

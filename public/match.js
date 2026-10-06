@@ -25,6 +25,11 @@ export function roundResults(players, { rule = 'race', final = false, quota = pl
   return rows;
 }
 
+// 초반 라운드는 덜 떨어뜨리고 갈수록 좁힙니다: 1R 70% · 2R 60% · 3R부터 50% 통과.
+export function eliminationQuota(count, round) {
+  return count < 2 ? count : Math.min(count - 1, Math.max(1, Math.ceil(count * (round <= 1 ? .7 : round === 2 ? .6 : .5))));
+}
+
 export const hasNextRound = room => room.settings.matchMode==='series' ? room.round<room.settings.rounds : room.settings.matchMode==='elimination' && !room.matchOver;
 export const isSuccessful = row => ['finished','survived','winner'].includes(row.status);
 export const placeLabel = row => row.status==='dnf' ? '미완주' : row.status==='eliminated' && row.rank==null ? '탈락' : `${row.rank}위`;

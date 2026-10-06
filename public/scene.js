@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { createCourse, MAPS, obstaclePose, platformTiming, platformPose, supportAt, conveyorVelocity } from './world.js';
+import { createCourse, MAPS, obstaclePose, platformTiming, platformPose, supportAt, conveyorVelocity, floodLevel } from './world.js';
 import { CHARACTERS, COLORS } from './catalog.js';
 import { AutoGraphics, GRAPHICS_LEVELS, renderPixelRatio } from './graphics.js';
 
@@ -395,6 +395,7 @@ export class GameScene {
     this.decorations = [];
     this.obstacles = [];
     this.platforms = [];
+    this.flood = null;
     this.springEffects = new Map();
     this.iceTrail = null;
     this.course = null;
@@ -629,7 +630,21 @@ export class GameScene {
         this.batchLocalMeshes(group); this.content.add(group); this.platforms.push({data:platform,group});
         return;
       }
-      const color = platform.color || (platform.type === 'ice' ? '#608983' : platform.type === 'conveyor' ? '#8b825c' : baseColor);
+      if (platform.type === 'boost') {
+        this.box(group,CAMP.wood,[0,-.38,0],[platform.w,.7,platform.d]);
+        const pad=new THREE.Group(); group.add(pad);
+        this.box(pad,'#d9a13c',[0,-.01,0],[platform.w-.3,.06,platform.d-.3]);
+        const direction=Math.atan2(platform.dirX||0,platform.dirZ??1);
+        for(const step of [-1,0,1]) {
+          const mark=this.mesh(pad,'arrow','#7a3f1d',[Math.sin(direction)*step*platform.d*.27,.05,Math.cos(direction)*step*platform.d*.27],[1.15,1,1.15]);
+          mark.rotation.y=direction;
+        }
+        group.userData.fabric=pad;
+        const label=this.label('부스터','#7a3f1d','#f3d58b',2.8); label.position.set(0,1,0); group.add(label);
+        this.batchLocalMeshes(group); this.content.add(group); this.platforms.push({data:platform,group});
+        return;
+      }
+      const color = platform.color || (platform.type === 'ice' ? '#608983' : platform.type === 'conveyor' ? '#8b825c' : platform.type === 'mud' ? '#5a3f2b' : baseColor);
       this.box(group, CAMP.wood, [0, -0.34, 0], [platform.w, 0.68, platform.d]);
       this.box(group, CAMP.edge, [0, -0.03, 0], [platform.w - 0.09, 0.065, platform.d - 0.09]);
       // 교차 발판의 반투명 광택층은 깊이가 겹쳐 깜빡이므로 불투명 바닥 재질로 표현합니다.
@@ -645,8 +660,12 @@ export class GameScene {
         belt.frustumCulled=false; group.add(belt);
         group.userData.belt={mesh:belt,marks,direction};
       }
-      if (['disappear','collapse','sink'].includes(platform.type)) this.ring(group, '#fff7d7', [0, 0.07, 0], [Math.min(platform.w, platform.d) * 0.26, Math.min(platform.w, platform.d) * 0.26, 0.65], true);
-      if (['disappear','collapse','sink'].includes(platform.type)) {
+      if (platform.type === 'mud') for (let i = 0; i < Math.round(platform.w * platform.d / 14); i++)
+        this.sphere(group, '#3f2a1c', [((i * 0.618) % 1 - .5) * (platform.w - 1.4), .05, ((i * 0.377 + .2) % 1 - .5) * (platform.d - 1.4)], [.35 + i % 3 * .18, .08, .3 + i % 2 * .2]);
+      // 가짜 발판은 진짜 발판과 똑같이 그려야 하므로 경고 표시를 붙이지 않습니다.
+      const tell = ['disappear','collapse','sink'].includes(platform.type) && !platform.fake;
+      if (tell) this.ring(group, '#fff7d7', [0, 0.07, 0], [Math.min(platform.w, platform.d) * 0.26, Math.min(platform.w, platform.d) * 0.26, 0.65], true);
+      if (tell) {
         const warning = this.label('곧 사라져요!' , '#a24e28', '#fff1cf', 4.4);
         warning.position.set(0, 1.25, 0); warning.visible = false; group.add(warning);
         const bar = this.box(group, GOLD, [0, 0.1, -platform.d / 2 + 0.8], [platform.w - 1, 0.09, 0.35]);
@@ -659,6 +678,10 @@ export class GameScene {
         this.box(group, CAMP.edge, [side * (platform.w / 2 - 0.2), 0.055, 0], [0.17, 0.035, platform.d - 0.12]);
         this.box(group, CAMP.edge, [0, 0.055, side * (platform.d / 2 - 0.2)], [platform.w - 0.12, 0.035, 0.17]);
       }
+      if (platform.type === 'moving' && platform.axis === 'y') {
+        const label = this.label('엘리베이터', INK, GOLD, 3.4); label.position.set(0, 1.3, 0); group.add(label);
+        for (const x of [-1, 1]) for (const z of [-1, 1]) this.box(this.content, CAMP.wood, [platform.x + x * (platform.w / 2 + .3), platform.y + .4, platform.z + z * (platform.d / 2 + .3)], [.28, platform.range * 2 + 2.2, .28]);
+      }
       this.content.add(group);
       if (['moving', 'disappear', 'collapse', 'sink', 'conveyor'].includes(platform.type)) {
         this.batchLocalMeshes(group, [group.userData.warningBar]);
@@ -670,7 +693,30 @@ export class GameScene {
       const group = new THREE.Group();
       const { w, h, d, type } = obstacle;
       const color = obstacle.color || ({ spinner: '#b85c37', bumper: '#b85c37', gate: '#b85c37', pendulum: '#b85c37', fan: '#c5a15a', wall: '#b85c37' })[type] || '#b85c37';
-      if (type === 'spinner') {
+      if (type === 'puncher') {
+        // 받침은 제자리에 두고 주먹 부분만 튀어나옵니다.
+        const along = obstacle.axis === 'x' ? 'x' : 'z', face = obstacle.dir || 1;
+        const base = { x: obstacle.x, z: obstacle.z }; base[along] -= face * (w / 2 + .45);
+        this.box(this.content, CAMP.wood, [base.x, (obstacle.y || 0) + h / 2 + .2, base.z], along === 'x' ? [.9, h + .8, d + .8] : [w + .8, h + .8, .9]);
+        this.box(group, '#b9472f', [0, h / 2, 0], [w * .92, h * .92, d * .92]);
+        const glove = this.sphere(group, '#d8613f', [along === 'x' ? face * w / 2 : 0, h / 2, along === 'z' ? face * d / 2 : 0], along === 'x' ? [.6, h * .48, d * .52] : [w * .52, h * .48, .6]);
+        glove.castShadow = true;
+        this.box(group, '#f0d9a8', [along === 'x' ? face * (w / 2 + .35) : 0, h / 2, along === 'z' ? face * (d / 2 + .35) : 0], along === 'x' ? [.12, h * .35, d * .3] : [w * .3, h * .35, .12]);
+        const warning=this.label('펀치!',CAMP.hazard,WHITE,3.2); warning.visible=false; this.content.add(warning); group.userData.warning=warning;
+        // 받침과 주먹을 잇는 피스톤은 튀어나온 길이만큼 늘어납니다.
+        const rod=this.mesh(this.content,'cylinder','#5d4a37',[base.x,(obstacle.y||0)+h/2+.2,base.z],[.22,1,.22]); rod.rotation[along==='x'?'z':'x']=Math.PI/2; rod.visible=false;
+        group.userData.rod={mesh:rod,base,along,face};
+      } else if (type === 'vortex') {
+        // 바람처럼 충돌하지 않는 영역입니다. 소용돌이 팔이 회전 방향을 보여 줍니다.
+        this.mesh(group, 'cylinder', '#5fa9a6', [0, .1, 0], [w / 2, .04, w / 2], { transparent: true, opacity: .28, depthWrite: false });
+        const swirl = new THREE.Group(); swirl.position.y = .16; group.add(swirl);
+        for (let arm = 0; arm < 4; arm++) for (let i = 1; i < 9; i++) {
+          const r = w / 2 * i / 9, angle = arm * Math.PI / 2 + i * .45;
+          const streak = this.mesh(swirl, 'box', '#a6dcd6', [Math.sin(angle) * r, 0, Math.cos(angle) * r], [.16, .03, .9 + i * .08], { transparent: true, opacity: .55, depthWrite: false });
+          streak.rotation.y = angle + Math.PI / 2; streak.castShadow = false;
+        }
+        group.userData.swirl = swirl;
+      } else if (type === 'spinner') {
         this.box(group, color, [0, h / 2, 0], [w, h, d]);
         this.box(group, '#fff1f6', [0, h / 2 + 0.005, 0], [Math.min(w * 0.08, 0.8), h + 0.02, d + 0.02]);
         this.mesh(group, 'cylinder', GOLD, [0, h / 2, 0], [0.46, h + 0.24, 0.46]);
@@ -743,6 +789,12 @@ export class GameScene {
       for(let i=0;i<8;i++) for(let j=0;j<2;j++) this.box(mat,(i+j)%2?CAMP.trim:CAMP.edge,[i-3.5,0,j*.7-.35],[1,.04,.7]);
     } else {
       this.box(this.content,'#416d62',[0,-4,6],[110,.15,110]);
+    }
+    this.flood=null;
+    if(course.flood) {
+      const centerZ=(course.bounds.minZ+course.bounds.maxZ)/2;
+      this.flood=this.mesh(this.content,'box',course.flood.color,[0,course.flood.from,centerZ],[course.bounds.x*2+40,.2,course.bounds.maxZ-course.bounds.minZ+40],{transparent:true,opacity:.82,emissive:course.flood.color,emissiveIntensity:.55,depthWrite:false});
+      this.flood.castShadow=false; this.flood.receiveShadow=false;
     }
     for(let i=0;i<course.path.length;i++) {
       const n=course.path[i];
@@ -920,7 +972,13 @@ export class GameScene {
           const pulse=age<.65?Math.sin(age/.65*Math.PI)*Math.exp(-age*2):0;
           group.scale.set(1+pulse*.2,1-pulse*.35,1+pulse*.2);
         }
-        if(group.userData.warning) { group.userData.warning.visible=pose.warning; group.userData.warning.position.set(pose.x,4.5,pose.z); }
+        if(group.userData.warning) { group.userData.warning.visible=pose.warning; group.userData.warning.position.set(pose.x,(pose.y||0)+4.5,pose.z); }
+        if (group.userData.rod) {
+          const { mesh, base, along, face } = group.userData.rod, length = Math.abs(pose[along] - base[along]) - data.w / 2;
+          mesh.visible = length > .5; mesh.scale.y = Math.max(.01, length);
+          mesh.position[along] = base[along] + face * length / 2;
+        }
+        if (group.userData.swirl) group.userData.swirl.rotation.y = -t * (1.2 + data.force / 60) * Math.sign(data.force || 1);
         if (group.userData.blades) group.userData.blades.rotation.z = t * 12;
         if (group.userData.wind) group.userData.wind.children.forEach((streak, i) => {
           const along = ((t * Math.sign(data.force) * 4 + i * 1.73) % 1 + 1) % 1 - 0.5;
@@ -928,6 +986,7 @@ export class GameScene {
           streak.position.z = data.axis === 'x' ? ((i % 3) - 1) * data.d * 0.27 : along * data.d;
         });
       }
+      if (this.flood) { this.flood.position.y = floodLevel(this.course, serverTime) - .1 + Math.sin(t * 2) * .03; }
       for (const { data, group } of this.platforms) {
         const pose=platformPose(data,serverTime); group.position.set(pose.x,pose.y,pose.z);
         if(data.type==='rotating') group.rotation.y=pose.rotation;
