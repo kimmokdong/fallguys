@@ -90,7 +90,8 @@ rm -rf public tests
 cp -a "$STAGE/." "$LIVE/"
 docker compose config --quiet
 docker compose build game
-docker compose run --rm --no-deps -v "$LIVE/tests:/app/tests:ro" game npm test
+# -T와 </dev/null: 이 원격 스크립트는 ssh 표준 입력으로 들어오므로, 컨테이너가 표준 입력을 읽어 남은 줄을 삼키지 않게 막습니다.
+docker compose run -T --rm --no-deps -v "$LIVE/tests:/app/tests:ro" game npm test </dev/null
 check_connections
 RECREATED=1
 docker compose up -d --no-deps --no-build --wait --wait-timeout 90 game
