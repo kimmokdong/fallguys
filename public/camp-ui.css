@@ -189,6 +189,9 @@ dialog{max-height:calc(100dvh - 2 * var(--screen-gap))}
 .result-front .result-photo img{transform:scale(1.22)}
 .result-front .tile-caption{grid-column:2;grid-row:2;min-width:0}
 .result-front .result-value,.results-overlay.crowded .result-front .result-value{font-size:clamp(15px,11cqi,21px);letter-spacing:-.5px;margin:1px 0;font-variant-numeric:tabular-nums}
+/* '이번 판 +점수' 같은 보조 기록은 카드 맨 아래 한 줄을 통째로 써서 잘리지 않게 합니다. */
+.result-front{grid-template-rows:18px minmax(0,1fr) auto}
+.result-front .tile-detail{grid-column:1 / -1;grid-row:3;display:block;min-width:0;margin:0;padding-top:1px;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:clamp(11px,9.5cqi,14px);line-height:1.2;color:#4e6146}
 @media(max-width:1099px){.results-list{grid-template-columns:repeat(4,minmax(0,1fr));grid-template-rows:none;grid-auto-rows:125px;overflow:auto}}
 @media(max-width:599px){.results-list{grid-template-columns:repeat(2,minmax(0,1fr));grid-auto-rows:125px;overflow:visible}}
 /* 맵 도감: 카드를 누르면 같은 창 안에서 설명과 기믹을 보여 줍니다. */
