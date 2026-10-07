@@ -213,3 +213,6 @@ dialog{max-height:calc(100dvh - 2 * var(--screen-gap))}
 .gimmick-list p{font-size:13px;line-height:1.5;margin:2px 0 0;color:#5e6e56}
 @media(max-width:760px){.map-detail-grid{grid-template-columns:1fr;gap:18px}.map-detail-art{position:static}.map-detail-info h2{font-size:26px}.map-detail-desc{font-size:14px}.filter-divider{display:none}}
 #maps-dialog [hidden]{display:none!important}
+/* 홈 헤더 타이틀 옆 만든이 표기 */
+.brand-credit{flex:none;align-self:center;margin-left:-8px;padding:4px 10px;border:1px solid #a5b092;border-radius:999px;background:#eee5cf;color:#41644a;font-size:12px;font-weight:700;letter-spacing:-.2px;line-height:1.2;white-space:nowrap}
+@media(max-width:760px){.brand-credit{margin-left:0;padding:3px 8px;font-size:11px}}
