@@ -285,11 +285,17 @@ Render 배포 후 공개 파일이 로컬 구현과 일치하는 것을 확인�
 
 `/opt/camp-jelly`에서 `compose.yaml`로 게임 서버 1개와 Caddy HTTPS 프록시를 실행합니다. 게임 포트 3000은 외부에 게시하지 않고 80/443만 전체 공개합니다. SSH는 Lightsail 브라우저 접속으로 제한했으며 배포에 사용한 CloudShell IP 허용은 제거했습니다. SSH 암호 접속은 비활성화되어 있습니다. 임시 SSH 인증서는 CloudShell에서만 사용하고 작업 종료 시 삭제합니다. 서버에는 GitHub 토큰이나 AWS 영구 액세스 키를 저장하지 않았습니다.
 
-Caddy 인증서는 Docker 볼륨에 보존되며 서비스는 재부팅 후 자동 시작합니다. 로그 보관 크기를 제한합니다. 48kbps 음원·바이너리 통신·정적 파일 압축과 캐시를 유지합니다. 게임 소스 배포 기준은 `18ea4cf0a80687a10d086359ca9cd2955ecf9e7c`(2026-10-07)입니다. [deploy/DEPLOY_AWS.md](deploy/DEPLOY_AWS.md)의 `deploy/pack.sh`·`deploy/cloudshell-deploy.sh`로 배포했으며, 서버 안에서 새 이미지의 `npm test` 통과를 확인한 뒤 게임 컨테이너만 교체했습니다. 기존 `.env`와 공유 프록시의 `/opt/camp-paint/deploy/Caddyfile.gateway`, `/opt/camp-paint/deploy/proxy.override.yaml`은 수정하지 않았으며 Caddy를 재시작하거나 reload하지 않았습니다. 배포 전 소스는 `backups/pre-18ea4cf-20261007T055103.tar.gz`, 실행 이미지는 `camp-jelly-game:rollback-20261007T055103`으로 백업했습니다. 직전 기준은 `62c67d0`(2026-10-06)이었습니다.
+Caddy 인증서는 Docker 볼륨에 보존되며 서비스는 재부팅 후 자동 시작합니다. 로그 보관 크기를 제한합니다. 48kbps 음원·바이너리 통신·정적 파일 압축과 캐시를 유지합니다. 게임 소스 배포 기준은 `f6127bcb`(2026-10-07, 홈 헤더 '만든이 현승쌤' 표기)입니다. [deploy/DEPLOY_AWS.md](deploy/DEPLOY_AWS.md)의 `deploy/pack.sh`·`deploy/cloudshell-deploy.sh`로 배포했으며, 서버 안에서 새 이미지의 `npm test` 통과를 확인한 뒤 게임 컨테이너만 교체했습니다. 기존 `.env`와 공유 프록시의 `/opt/camp-paint/deploy/Caddyfile.gateway`, `/opt/camp-paint/deploy/proxy.override.yaml`은 수정하지 않았으며 Caddy를 재시작하거나 reload하지 않았습니다. 배포 전 소스는 `backups/pre-f6127bc-20261007T060236.tar.gz`, 실행 이미지는 `camp-jelly-game:rollback-20261007T060236`으로 백업했습니다. 직전 기준은 같은 날 `18ea4cf`, 그 전은 `62c67d0`(2026-10-06)이었습니다.
 
 2026-09-29 배포에서는 캠프 젤리의 HSTS를 추가했으며 다른 사이트 경로를 유지했습니다. 당시 백업 이름은 `backups/pre-b68c817.tar.gz`, `backups/Caddyfile.gateway-pre-b68c817`, `camp-jelly-game:pre-b68c817`입니다.
 
 ### 검증
+
+#### 2026-10-07 배포 검증 (f6127bc, 만든이 표기)
+
+- 홈 헤더 타이틀 옆에 '만든이 현승쌤'을 넣은 `f6127bc`를 같은 절차로 배포했습니다. 로컬·서버 `npm test` 모두 **77개 통과**, 패키지 sha256 `c83203e6…a28fdb4a`가 CloudShell에서도 같았습니다.
+- 교체 직전 연결 0, `camp-jelly-game-1` `(healthy)`, `/healthz` 정상, 캠프 젤리·캠프 페인트 200, `ACCESS_RESTORED`, `EXIT=0`을 확인했습니다.
+- 운영 `index.html`·`camp-ui.css`·`app.js`가 커밋과 해시 일치하고, 운영 HTML에 `만든이 현승쌤`이 들어 있습니다. 1280px·770px·375px에서 헤더가 겹치거나 가로 스크롤이 생기지 않는 것과 운영 첫 화면의 3D 캐릭터를 확인했습니다.
 
 #### 2026-10-07 배포 검증
 
