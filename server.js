@@ -58,7 +58,7 @@ export function createGameServer({ reconnectGraceMs = 20_000, countdownMs = 6_00
       const url = new URL(req.url, 'http://localhost');
       if (url.pathname === '/healthz') {
         res.writeHead(200, { ...SECURITY_HEADERS, 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
-        res.end(req.method === 'HEAD' ? undefined : JSON.stringify({ ok: true, rooms: rooms.size }));
+        res.end(req.method === 'HEAD' ? undefined : JSON.stringify({ ok: true, rooms: rooms.size, connections: wss.clients.size }));
         return;
       }
       const pathname = decodeURIComponent(url.pathname);

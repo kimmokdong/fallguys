@@ -19,7 +19,7 @@ const INLINE_SCRIPT=/<script\b(?![^>]*\bsrc\s*=)[^>]*>([\s\S]*?)<\/script>/gi;
 export function contentSecurityPolicy(html) {
   const hashes=[...String(html).matchAll(INLINE_SCRIPT)].map(match=>`'sha256-${createHash('sha256').update(match[1].replace(/\r\n?/g,'\n')).digest('base64')}'`);
   return [
-    "default-src 'self'", ["script-src 'self' https://hyunseung-lab-portal.netlify.app/project-visits.js",...hashes].join(' '), "style-src 'self' 'unsafe-inline'", "img-src 'self' data: blob:",
+    "default-src 'self'", ["script-src 'self' https://hsstudio.pages.dev/project-visits.js",...hashes].join(' '), "style-src 'self' 'unsafe-inline'", "img-src 'self' data: blob:",
     "connect-src 'self' ws: wss: https://rzystmknekmqyovifmhu.supabase.co/rest/v1/rpc/record_portal_visit", "font-src 'self'", "media-src 'self' blob:", "object-src 'none'", "base-uri 'none'", "form-action 'self'", "frame-ancestors 'none'",
   ].join('; ');
 }

@@ -164,7 +164,7 @@ test('보안 헤더와 import map 해시·방문 집계만 허용하는 CSP, 상
   const importMap = /<script type="importmap">([\s\S]*?)<\/script>/.exec(html)[1];
   assert.ok(csp.includes(`'sha256-${createHash('sha256').update(importMap).digest('base64')}'`), 'import map 해시 허용');
   assert.ok(!/unsafe-(inline|eval)/.test(csp.split(';').find((part) => part.trim().startsWith('script-src'))), '인라인·eval 스크립트 차단');
-  assert.ok(csp.split(';').find(part => part.trim().startsWith('script-src')).includes('https://hyunseung-lab-portal.netlify.app/project-visits.js'), '방문 집계 스크립트 파일만 허용');
+  assert.ok(csp.split(';').find(part => part.trim().startsWith('script-src')).includes('https://hsstudio.pages.dev/project-visits.js'), '방문 집계 스크립트 파일만 허용');
   assert.ok(csp.split(';').find(part => part.trim().startsWith('connect-src')).includes('https://rzystmknekmqyovifmhu.supabase.co/rest/v1/rpc/record_portal_visit'), '방문 집계 API 경로만 허용');
   for (const directive of ["default-src 'self'", "frame-ancestors 'none'", "object-src 'none'", "connect-src 'self' ws: wss:"]) assert.ok(csp.includes(directive), directive);
   assert.equal(page.headers.get('x-frame-options'), 'DENY');
@@ -176,5 +176,17 @@ test('보안 헤더와 import map 해시·방문 집계만 허용하는 CSP, 상
   assert.equal(missing.status, 404); assert.equal(missing.headers.get('x-content-type-options'), 'nosniff');
   const health = await fetch(app.url + '/healthz');
   assert.equal(health.status, 200); assert.equal(health.headers.get('cache-control'), 'no-store');
-  assert.deepEqual(await health.json(), { ok: true, rooms: 0 });
+  assert.deepEqual(await health.json(), { ok: true, rooms: 0, connections: 0 });
+});
+
+
+test('상태 조회의 연결 수는 방 입장 전 연결도 포함하고 종료 뒤 감소한다', async (t) => {
+  const app = await setup(t), health = async () => (await fetch(app.url + '/healthz')).json();
+  const member = await client(app.url);
+  assert.deepEqual(await health(), { ok: true, rooms: 0, connections: 1 });
+  member.send({ type: 'create', name: '접속 확인' }); await member.wait(ofType('welcome'));
+  assert.deepEqual(await health(), { ok: true, rooms: 1, connections: 1 });
+  const closed = once([...app.wss.clients][0], 'close');
+  member.socket.close(); await closed;
+  assert.equal((await health()).connections, 0);
 });
