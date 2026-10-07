@@ -307,7 +307,7 @@ Caddy 인증서는 Docker 볼륨에 보존되며 서비스는 재부팅 후 자�
 
 ### 업데이트와 복구
 
-**GitHub push만으로 AWS가 자동 배포되지는 않습니다.** 현재는 검증한 코드를 전달한 뒤 아래 명령으로 반영합니다. 서버 재시작 때 진행 중인 방과 결과는 초기화되므로 수업 외 시간에 배포합니다. 기존 Render 리소스는 삭제하지 않았습니다.
+**GitHub push만으로 AWS가 자동 배포되지는 않습니다.** 현재는 검증한 코드를 전달한 뒤 아래 명령으로 반영합니다. 아래 수동 절차를 묶은 스크립트(`deploy/pack.sh` → CloudShell에서 `deploy/cloudshell-deploy.sh`)와 순서는 [deploy/DEPLOY_AWS.md](deploy/DEPLOY_AWS.md)에 있습니다. 서버 재시작 때 진행 중인 방과 결과는 초기화되므로 수업 외 시간에 배포합니다. 기존 Render 리소스는 삭제하지 않았습니다.
 
 1. 로컬에서 `npm test`를 통과한 커밋을 `git archive --format=tar.gz --output=output/camp-jelly-aws.tar.gz HEAD`로 내보냅니다. 원본 음원·비밀 파일·node_modules는 포함하지 않습니다.
 2. AWS CloudShell에 업로드하고 Lightsail 임시 SSH 인증과 해당 CloudShell IPv4만 허용하여 서버로 전달합니다. AWS가 제공한 호스트 키를 검증하며 인증서 내용은 출력하지 않습니다. 배포 후 임시 IP 허용을 제거합니다.
