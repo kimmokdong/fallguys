@@ -285,11 +285,18 @@ Render 배포 후 공개 파일이 로컬 구현과 일치하는 것을 확인�
 
 `/opt/camp-jelly`에서 `compose.yaml`로 게임 서버 1개와 Caddy HTTPS 프록시를 실행합니다. 게임 포트 3000은 외부에 게시하지 않고 80/443만 전체 공개합니다. SSH는 Lightsail 브라우저 접속으로 제한했으며 배포에 사용한 CloudShell IP 허용은 제거했습니다. SSH 암호 접속은 비활성화되어 있습니다. 임시 SSH 인증서는 CloudShell에서만 사용하고 작업 종료 시 삭제합니다. 서버에는 GitHub 토큰이나 AWS 영구 액세스 키를 저장하지 않았습니다.
 
-Caddy 인증서는 Docker 볼륨에 보존되며 서비스는 재부팅 후 자동 시작합니다. 로그 보관 크기를 제한합니다. 48kbps 음원·바이너리 통신·정적 파일 압축과 캐시를 유지합니다. 게임 소스 배포 기준은 `62c67d043bb528cd1e57fcf1873149a8cc2edf1d`(2026-10-06)입니다. 해당 커밋의 Git 아카이브를 전달해 기존 음원을 유지하고, 서버 안에서 새 이미지의 `npm test` 통과를 확인한 뒤 게임 컨테이너만 교체했습니다. 기존 `.env`와 공유 프록시의 `/opt/camp-paint/deploy/Caddyfile.gateway`, `/opt/camp-paint/deploy/proxy.override.yaml`은 수정하지 않았으며 Caddy를 재시작하거나 reload하지 않았습니다. 배포 전 소스는 `backups/pre-62c67d0.tar.gz`, 실행 이미지는 `camp-jelly-game:pre-62c67d0`로 백업했습니다.
+Caddy 인증서는 Docker 볼륨에 보존되며 서비스는 재부팅 후 자동 시작합니다. 로그 보관 크기를 제한합니다. 48kbps 음원·바이너리 통신·정적 파일 압축과 캐시를 유지합니다. 게임 소스 배포 기준은 `18ea4cf0a80687a10d086359ca9cd2955ecf9e7c`(2026-10-07)입니다. [deploy/DEPLOY_AWS.md](deploy/DEPLOY_AWS.md)의 `deploy/pack.sh`·`deploy/cloudshell-deploy.sh`로 배포했으며, 서버 안에서 새 이미지의 `npm test` 통과를 확인한 뒤 게임 컨테이너만 교체했습니다. 기존 `.env`와 공유 프록시의 `/opt/camp-paint/deploy/Caddyfile.gateway`, `/opt/camp-paint/deploy/proxy.override.yaml`은 수정하지 않았으며 Caddy를 재시작하거나 reload하지 않았습니다. 배포 전 소스는 `backups/pre-18ea4cf-20261007T055103.tar.gz`, 실행 이미지는 `camp-jelly-game:rollback-20261007T055103`으로 백업했습니다. 직전 기준은 `62c67d0`(2026-10-06)이었습니다.
 
 2026-09-29 배포에서는 캠프 젤리의 HSTS를 추가했으며 다른 사이트 경로를 유지했습니다. 당시 백업 이름은 `backups/pre-b68c817.tar.gz`, `backups/Caddyfile.gateway-pre-b68c817`, `camp-jelly-game:pre-b68c817`입니다.
 
 ### 검증
+
+#### 2026-10-07 배포 검증
+
+- 커밋 `18ea4cf0a80687a10d086359ca9cd2955ecf9e7c`를 `deploy/pack.sh`로 묶었습니다(패키지 sha256 `01da1142…6d68008d`). 로컬 테스트와 서버 안 새 game 이미지의 `npm test`가 각각 **77개 통과, 실패 0개**였습니다. CloudShell 업로드 후 패키지와 배포 스크립트의 sha256이 로컬과 같았습니다.
+- 교체 직전 3000번 포트 연결 수 0을 확인했고, `camp-jelly-game-1`이 `(healthy)`로 올라왔습니다. 공개 `/healthz`는 `{"ok":true,"rooms":0,"connections":0}`, 캠프 젤리·캠프 페인트 모두 HTTP 200이었고 스크립트는 `EXIT=0`으로 끝났습니다. 프록시 컨테이너는 재시작하지 않았습니다(가동 7일 유지).
+- 작업 후 SSH 포트 규칙은 `lightsail-connect`만 남도록 복원했습니다(`ACCESS_RESTORED`).
+- 운영에서 내려받은 `public`의 게임 파일 14개(`index.html`·`app.js`·`camp-ui.css` 등)가 커밋과 해시 일치했습니다. 검토용 시안 페이지 10개는 `.dockerignore`대로 운영에서 404입니다. 브라우저로 첫 화면과 3D 캐릭터 표시를 확인했습니다.
 
 #### 2026-10-06 배포 검증
 
