@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { createCourse, MAPS, obstaclePose, platformTiming, platformPose, supportAt, conveyorVelocity, floodLevel } from './world.js';
+import { createCourse, MAPS, SIGNALS, obstaclePose, platformTiming, platformPose, supportAt, conveyorVelocity, floodLevel } from './world.js';
 import { CHARACTERS, COLORS } from './catalog.js';
 import { AutoGraphics, GRAPHICS_LEVELS, renderPixelRatio } from './graphics.js';
 
@@ -596,6 +596,7 @@ export class GameScene {
     const course = this.course;
     this.paintingCourse = true;
     const baseColor = course.colors?.floor || '#638364';
+    const signalMarks=course.id==='signal-square'?SIGNALS.map(s=>this.label(s.symbol,INK,s.color,3)):[];
     course.platforms.forEach((platform) => {
       const group = new THREE.Group();
       group.position.set(platform.x, platform.y ?? 0, platform.z);
@@ -645,6 +646,14 @@ export class GameScene {
         return;
       }
       const color = platform.color || (platform.type === 'ice' ? '#608983' : platform.type === 'conveyor' ? '#8b825c' : platform.type === 'mud' ? '#5a3f2b' : baseColor);
+      if(platform.type==='seesaw') {
+        const pivot=this.mesh(this.content,'cone',CAMP.wood,[platform.x,platform.y-1.1,platform.z],[1.4,2.2,1.4]);
+        pivot.rotation.y=platform.rotation;
+        const label=this.label('균형을 잡아요',INK,GOLD,4); label.position.set(0,1.6,0); group.add(label);
+      }
+      if(platform.type==='signal') {
+        const mark=signalMarks[platform.signalGroup].clone(); mark.position.set(0,.6,0); group.add(mark);
+      }
       this.box(group, CAMP.wood, [0, -0.34, 0], [platform.w, 0.68, platform.d]);
       this.box(group, CAMP.edge, [0, -0.03, 0], [platform.w - 0.09, 0.065, platform.d - 0.09]);
       // 교차 발판의 반투명 광택층은 깊이가 겹쳐 깜빡이므로 불투명 바닥 재질로 표현합니다.
@@ -663,7 +672,7 @@ export class GameScene {
       if (platform.type === 'mud') for (let i = 0; i < Math.round(platform.w * platform.d / 14); i++)
         this.sphere(group, '#3f2a1c', [((i * 0.618) % 1 - .5) * (platform.w - 1.4), .05, ((i * 0.377 + .2) % 1 - .5) * (platform.d - 1.4)], [.35 + i % 3 * .18, .08, .3 + i % 2 * .2]);
       // 가짜 발판은 진짜 발판과 똑같이 그려야 하므로 경고 표시를 붙이지 않습니다.
-      const tell = ['disappear','collapse','sink'].includes(platform.type) && !platform.fake;
+      const tell = ['disappear','collapse','sink','signal'].includes(platform.type) && !platform.fake;
       if (tell) this.ring(group, '#fff7d7', [0, 0.07, 0], [Math.min(platform.w, platform.d) * 0.26, Math.min(platform.w, platform.d) * 0.26, 0.65], true);
       if (tell) {
         const warning = this.label('곧 사라져요!' , '#a24e28', '#fff1cf', 4.4);
@@ -683,7 +692,7 @@ export class GameScene {
         for (const x of [-1, 1]) for (const z of [-1, 1]) this.box(this.content, CAMP.wood, [platform.x + x * (platform.w / 2 + .3), platform.y + .4, platform.z + z * (platform.d / 2 + .3)], [.28, platform.range * 2 + 2.2, .28]);
       }
       this.content.add(group);
-      if (['moving', 'disappear', 'collapse', 'sink', 'conveyor'].includes(platform.type)) {
+      if (['moving', 'disappear', 'collapse', 'sink', 'conveyor','seesaw','signal'].includes(platform.type)) {
         this.batchLocalMeshes(group, [group.userData.warningBar]);
         this.platforms.push({ data: platform, group });
       }
@@ -770,6 +779,10 @@ export class GameScene {
         const warning=this.label('압축기 주의!',CAMP.hazard,WHITE,4.8); warning.position.set(0,4.5,0); warning.visible=false;
         this.content.add(warning); group.userData.warning=warning;
         for(const side of [-1,1]) this.box(this.content,CAMP.wood,[obstacle.x+side*(w/2+.35),3,obstacle.z],[.3,6,.3]);
+      }
+      if(type==='maze-wall') {
+        const warning=this.label('벽이 돌아가요!',CAMP.hazard,WHITE,5); warning.position.set(0,h+1,0); warning.visible=false;
+        this.content.add(warning); group.userData.warning=warning;
       }
       this.content.add(group);
       this.batchLocalMeshes(group);
@@ -988,8 +1001,12 @@ export class GameScene {
       }
       if (this.flood) { this.flood.position.y = floodLevel(this.course, serverTime) - .1 + Math.sin(t * 2) * .03; }
       for (const { data, group } of this.platforms) {
-        const pose=platformPose(data,serverTime); group.position.set(pose.x,pose.y,pose.z);
+        const pose=platformPose(data,serverTime,this.course.collapsed); group.position.set(pose.x,pose.y,pose.z);
         if(data.type==='rotating') group.rotation.y=pose.rotation;
+        if(data.type==='seesaw') {
+          group.rotation.x=-Math.atan2(pose.rise,pose.run);
+          group.scale.z=Math.hypot(pose.run,pose.rise)/pose.run;
+        }
         if(group.userData.fabric) {
           const age=(now-(this.springEffects.get(data.id)??-Infinity))/1000;
           group.userData.fabric.position.y=age<.6?-.3*Math.sin(age/.6*Math.PI)*Math.exp(-age*2):0;
@@ -1004,7 +1021,7 @@ export class GameScene {
           });
           mesh.instanceMatrix.needsUpdate=true;
         }
-        if (['disappear','collapse','sink'].includes(data.type)) {
+        if (['disappear','collapse','sink','signal'].includes(data.type)) {
           const timing = platformTiming(data, serverTime, this.course.collapsed);
           group.visible = timing.active;
           if (group.userData.warning) {

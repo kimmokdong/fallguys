@@ -1,5 +1,5 @@
 // 이동·충돌은 서버에서 판정하고 같은 장애물 시간을 화면에 전달합니다.
-export { MAPS, createCourse, availableMaps } from './courses.js';
+export { MAPS, createCourse, availableMaps, SIGNALS } from './courses.js';
 const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
 
 // 조작감과 판정에 쓰는 값입니다. 바꾸면 코스 완주 테스트를 함께 확인하세요.
@@ -19,7 +19,16 @@ const STABLE = Object.freeze({ active: true, remaining: Infinity, warning: false
 const SLIDING = new Set(['bumper', 'log', 'slider']);
 const ROUND_HAZARDS = new Set(['bumper', 'pendulum', 'cushion']);
 
+export function signalState(timeSeconds) {
+  const time=Math.max(0,timeSeconds-6),round=Math.floor(time/7),phase=time%7;
+  return { group:[0,2,1,3,1,0,3,2][round%8], remaining:Math.max(0,4.5-phase)+Math.max(0,6-timeSeconds), open:timeSeconds>=6 && phase>=4.5 && phase<6.5 };
+}
+
 export function platformTiming(platform, timeSeconds, collapsed = {}) {
+  if(platform.type==='signal') {
+    const signal=signalState(timeSeconds),safe=platform.signalGroup===signal.group;
+    return {active:safe || !signal.open,remaining:signal.remaining,warning:!safe && timeSeconds>=6 && signal.remaining>0 && signal.remaining<=1};
+  }
   if (platform.type === 'collapse') {
     const touched = collapsed[platform.id];
     if (touched === undefined) return STABLE;
@@ -57,7 +66,8 @@ export function floodLevel(course, t) {
   return f ? Math.min(f.max, f.from + Math.max(0, t - f.start) * f.rate) : -Infinity;
 }
 
-export function platformPose(platform, timeSeconds) {
+export function platformPose(platform, timeSeconds, state = {}) {
+  if(platform.type==='seesaw') return {...platform,rise:platform.d*(state[platform.id]||0)};
   if (platform.type === 'rotating') return { ...platform, rotation: (platform.rotation || 0) + timeSeconds * platform.speed };
   if (platform.type !== 'moving') return platform;
   const pose = { ...platform };
@@ -101,6 +111,10 @@ export function obstaclePose(obstacle, timeSeconds) {
   let rotation = 0;
   const angle = timeSeconds * (obstacle.speed || 0) + (obstacle.phase || 0);
   if (obstacle.type === 'spinner') rotation = angle;
+  if(obstacle.type==='maze-wall') {
+    const time=timeSeconds+obstacle.phase,phase=time%obstacle.period,q=clamp((phase-6)/2,0,1);
+    rotation=(Math.floor(time/obstacle.period)+q*q*(3-2*q))*Math.PI/2;
+  }
   if (obstacle.type === 'gate') y += (Math.sin(angle) + 1) * obstacle.range / 2;
   if (obstacle.type === 'pendulum') { if (obstacle.axis === 'z') z += Math.sin(angle) * obstacle.range; else x += Math.sin(angle) * obstacle.range; y += Math.abs(Math.sin(angle)) * 1.8; }
   if (SLIDING.has(obstacle.type) && obstacle.range) {
@@ -108,6 +122,7 @@ export function obstaclePose(obstacle, timeSeconds) {
     else x += Math.sin(angle) * obstacle.range;
   }
   let warning = false;
+  if(obstacle.type==='maze-wall') warning=(timeSeconds+obstacle.phase)%obstacle.period>=5 && (timeSeconds+obstacle.phase)%obstacle.period<6;
   let extension = 0;
   if (obstacle.type === 'puncher') {
     const q = ((timeSeconds + (obstacle.phase || 0)) % obstacle.period + obstacle.period) % obstacle.period;
@@ -138,7 +153,7 @@ export function supportAt(course, x, z, timeSeconds, ceiling = Infinity) {
   const margin = PHYSICS.supportMargin;
   let best = null, bestY = -Infinity;
   for (const platform of course.platforms) {
-    const p = platformPose(platform, timeSeconds), rotation = p.rotation || 0;
+    const p = platformPose(platform, timeSeconds, course.collapsed), rotation = p.rotation || 0;
     const cos = rotation ? Math.cos(rotation) : 1, sin = rotation ? Math.sin(rotation) : 0;
     const dx = x - p.x, dz = z - p.z, lx = dx * cos - dz * sin, lz = dx * sin + dz * cos;
     const inside = p.type === 'rotating' ? Math.hypot(lx / (p.w / 2 + margin), lz / (p.d / 2 + margin)) < 1 : Math.abs(lx) < p.w / 2 + margin && Math.abs(lz) < p.d / 2 + margin;
@@ -182,18 +197,24 @@ export function stepPlayer(player, input = {}, course, timeSeconds, delta, settl
   player.coyoteTime = player.grounded ? P.coyoteTime : Math.max(0, (player.coyoteTime || 0) - dt);
   player.jumpBuffer = jump ? P.jumpBuffer : Math.max(0, (player.jumpBuffer || 0) - dt);
   const ice = player.grounded && floor.type === 'ice';
+  const sliding=course.sliding && (ice || !player.grounded);
   player.surface = player.grounded ? ({ ice: 1, conveyor: 2, rotating: 3, trampoline: 4, boost: 5, mud: 6 }[floor.type] || 0) : 0;
   const mud = player.grounded && floor.type === 'mud';
   const runSpeed = mud ? P.runSpeed * P.mudSpeed : P.runSpeed, jumpSpeed = mud ? P.jumpSpeed * P.mudJump : P.jumpSpeed;
   const acceleration = player.grounded ? P.groundAcceleration : player.springControl > 0 ? P.springAcceleration : P.airAcceleration;
   const smoothing = 1 - Math.exp(-acceleration * dt);
-  if (ice) {
+  if (ice || sliding) {
     // 진행 관성을 유지한 채 힘을 더하므로 코너에서 실제로 옆으로 미끄러집니다.
-    const drag = Math.exp(-P.iceDrag * dt);
+    const drag = Math.exp(-(sliding ? .12 : P.iceDrag) * dt);
     player.vx = player.vx * drag + ix * P.iceForce * dt;
     player.vz = player.vz * drag + iz * P.iceForce * dt;
+    if(sliding && ice && floor.rise) {
+      const force=-P.gravity*floor.rise/Math.hypot(floor.run,floor.rise);
+      player.vx+=Math.sin(floor.rotation)*force*dt; player.vz+=Math.cos(floor.rotation)*force*dt;
+    }
     const speed = Math.hypot(player.vx, player.vz);
-    if (speed > P.iceMaxSpeed) { player.vx *= P.iceMaxSpeed / speed; player.vz *= P.iceMaxSpeed / speed; }
+    const maxSpeed=sliding?24:P.iceMaxSpeed;
+    if (speed > maxSpeed) { player.vx *= maxSpeed / speed; player.vz *= maxSpeed / speed; }
   } else {
     player.vx += (ix * runSpeed - player.vx) * smoothing;
     player.vz += (iz * runSpeed - player.vz) * smoothing;
@@ -213,6 +234,10 @@ export function stepPlayer(player, input = {}, course, timeSeconds, delta, settl
   let driftX = 0; let driftZ = 0;
   if (player.grounded && floor.type === 'conveyor') {
     const belt = conveyorVelocity(floor); driftX = belt.x; driftZ = belt.z;
+  }
+  if(player.grounded && floor.type==='seesaw') {
+    driftX=-Math.sin(floor.rotation)*floor.rise/floor.run*8;
+    driftZ=-Math.cos(floor.rotation)*floor.rise/floor.run*8;
   }
   const sheltered = course.rule === 'survival' && timeSeconds < P.survivalGrace;
   for (const obstacle of course.obstacles) {
@@ -241,6 +266,7 @@ export function stepPlayer(player, input = {}, course, timeSeconds, delta, settl
 
   // 위에서 내려오는 착지만 인정하므로 계단은 점프해서 올라야 합니다.
   const landing = supportAt(course, player.x, player.z, timeSeconds, previousY + 0.1);
+  if(!wasAirborne && landing && landing.id===floor?.id && (sliding || floor.type==='seesaw')) player.y=Math.min(player.y,landing.y);
   player.grounded = false;
   if (landing && player.vy <= 0 && player.y <= landing.y && previousY >= landing.y - 0.1) {
     player.y = landing.y; player.vy = 0; player.grounded = true; player.touched = true; player.supportId = landing.id;
@@ -266,7 +292,7 @@ function resolveCourseContacts(player, course, timeSeconds, hazards = true) {
   let moved = false;
   // 높은 발판의 옆면 충돌도 처리해 계단 내부로 뚫고 들어가지 않게 합니다.
   for (const platform of course.platforms) {
-    const p = platformPose(platform, timeSeconds);
+    const p = platformPose(platform, timeSeconds, course.collapsed);
     if (p.rise || p.y <= player.y + P.stepTolerance || p.y - P.platformThickness >= player.y + P.bodyHeight || !platformActive(p, timeSeconds, course.collapsed)) continue;
     if (resolveBox(player, p.x, p.z, p.w, p.d, p.rotation || 0, p.type === 'rotating')) moved = true;
   }
@@ -290,7 +316,7 @@ function resolveCourseContacts(player, course, timeSeconds, hazards = true) {
     }
     // 펀치 벽은 튀어나오는 순간에만 세게 날리고, 들어가 있을 때는 평범한 벽입니다.
     const punching = obstacle.type === 'puncher' && pose.extension > .3;
-    if (hazards && hit && obstacle.type !== 'wall' && obstacle.type !== 'gate' && (obstacle.type !== 'puncher' || punching) && player.hitCooldown <= 0) {
+    if (hazards && hit && !['wall','gate','maze-wall'].includes(obstacle.type) && (obstacle.type !== 'puncher' || punching) && player.hitCooldown <= 0) {
       const knockback = punching ? obstacle.force || P.punchKnockback : obstacle.type === 'bumper' ? P.bumperKnockback : P.hazardKnockback;
       player.vx += hit.x * knockback;
       player.vz += hit.z * knockback;
@@ -331,10 +357,10 @@ function settlePlayer(player, course, timeSeconds) {
     }
   }
   const bounds=course.bounds || {x:70,minZ:-30,maxZ:course.length+30};
-  const floorY = course.rule==='survival' ? Math.max(course.floorY ?? P.survivalFloor, floodLevel(course, timeSeconds)) : P.raceFloor;
+  const floorY = course.rule==='survival' ? Math.max(course.floorY ?? P.survivalFloor, floodLevel(course, timeSeconds)) : course.floorY ?? P.raceFloor;
   if (player.y < floorY || Math.abs(player.x)>bounds.x || player.z<bounds.minZ || player.z>bounds.maxZ) {
     if (course.rule === 'survival') { player.eliminated=true; player.eliminatedAt=timeSeconds; player.vx=0; player.vz=0; return; }
-    const point = course.checkpoints[player.checkpoint] || { x: player.spawnX, y: 0, z: player.spawnZ };
+    const point = course.checkpoints[player.checkpoint] || { x: player.spawnX, y: course.spawnY || 0, z: player.spawnZ };
     player.x = point.x; player.y = point.y + .15; player.z = point.z;
     player.vx = 0; player.vy = 0; player.vz = 0; player.grounded = false; player.supportId = null;
     player.surface = 0; player.springControl = 0;
@@ -350,6 +376,15 @@ export function stepPlayers(players, inputs, course, timeSeconds, delta) {
   const steps = Math.ceil(dt / P.substep);
   for (let step = 0; step < steps; step++) {
     const time = timeSeconds - dt + (step + 1) * dt / steps;
+    for(const board of course.platforms) if(board.type==='seesaw') {
+      const passengers=players.filter(p=>p.grounded && p.supportId===board.id && !p.finished && !p.eliminated);
+      const torque=passengers.reduce((sum,p)=>sum+(p.x-board.x)*Math.sin(board.rotation)+(p.z-board.z)*Math.cos(board.rotation),0);
+      const before=course.collapsed[board.id]||0,target=clamp(-torque/board.d*.12,-.22,.22);
+      const after=Math.round((before+clamp(target-before,-dt/steps*.5,dt/steps*.5))*1000)/1000;
+      // 시소 기울기도 기존 발판 상태 패킷으로 보내 물리와 화면을 일치시킵니다.
+      course.collapsed[board.id]=after;
+      for(const p of passengers) p.y+=((p.x-board.x)*Math.sin(board.rotation)+(p.z-board.z)*Math.cos(board.rotation))*(after-before);
+    }
     // 생존전 시작 보호 시간에는 몸이 겹치지 않게만 하고 밀쳐내는 충격은 주지 않습니다.
     const sheltered = course.rule === 'survival' && time < P.survivalGrace;
     players.forEach((p, i) => stepPlayer(p, inputs[i], course, time, dt / steps, false));

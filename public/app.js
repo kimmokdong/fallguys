@@ -1,4 +1,4 @@
-import { MAPS, createCourse, availableMaps } from './world.js';
+import { MAPS, createCourse, availableMaps, SIGNALS, signalState } from './world.js';
 import { CHARACTERS, COLORS, GIMMICKS } from './catalog.js';
 import { GameScene } from './scene.js';
 import { resultOrder, revealedCount, roundPoints } from './results.js';
@@ -8,6 +8,7 @@ import { StateDecoder } from './network.js';
 let network=new StateDecoder(),lastView='',lastInput='',lastInputAt=0;
 
 const $ = (selector) => document.querySelector(selector);
+document.querySelectorAll('[data-map-count]').forEach(el=>el.textContent=MAPS.length);
 const escapeHTML = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const readStorage = (store, key) => { try { return JSON.parse(store.getItem(key)); } catch { return null; } };
 const saveStorage = (store, key, value) => { try { store.setItem(key, JSON.stringify(value)); } catch { /* 저장이 차단되어도 게임은 진행합니다. */ } };
@@ -97,6 +98,7 @@ function mapGimmicks(map) {
     for (const p of course.platforms) keys.add(p.fake ? 'fake' : p.type === 'moving' && p.axis === 'y' ? 'lift' : p.type);
     for (const o of course.obstacles) keys.add(o.type);
     if (course.flood) keys.add('flood');
+    if (course.sliding) keys.add('snow');
   }
   return Object.keys(GIMMICKS).filter((key) => keys.has(key));
 }
@@ -467,6 +469,13 @@ function renderRaceState() {
   if (leadersHTML !== lastLeadersHTML) { $('#race-leaders').innerHTML = leadersHTML; lastLeadersHTML = leadersHTML; }
   const passed=racers.filter(p=>p.finished).length;
   $('#round-objective').textContent=room.rule==='survival'?(room.isFinal?'마지막 한 명이 우승!':'떨어지면 탈락 · '+alive.length+'명 생존'):knockout?(room.isFinal?'가장 먼저 왕관에 도착하세요!':'통과 '+passed+' / '+room.quota+'명'):'번호 깃발을 지나 결승선까지!';
+  $('#round-objective').style.border='';
+  if(room.mapId==='signal-square') {
+    const state=signalState(latestState.time),signal=SIGNALS[state.group];
+    $('#round-objective').textContent=state.remaining<=0 && !state.open?'다음 신호 준비':signal.symbol+' '+signal.name+(state.open?' · 여기서 버텨요!':' 발판으로 이동! '+Math.ceil(state.remaining)+'초');
+    $('#round-objective').style.border='3px solid '+signal.color;
+  }
+  if(activeCourse?.sliding) $('#round-objective').textContent='가속 후 5번 연속 점프 · 떨어지면 처음부터!';
   if(room.rule==='survival' && activeCourse?.flood && latestState.time>=activeCourse.flood.start) $('#round-objective').textContent+=' · 용암 상승 중!';
   $('#progress-start').textContent=room.rule==='survival'?'생존':'출발'; $('#progress-end').textContent=room.rule==='survival'?'시간까지 버티기':'⚑ 도착';
   $('#race-progress').style.width=room.rule==='survival'?Math.min(100,latestState.time/room.settings.duration*100)+'%':Math.round((me?.progress||0)*100)+'%';
@@ -583,7 +592,7 @@ function updateResultReveal() {
     $('#result-subtitle').textContent = `${placeLabel(last)} · ${last.name}${last.id === myId ? ' (나)' : ''}`;
     const currentTile = tiles[count - 1];
     $('#result-spotlight').classList.toggle('winner', last.rank === 1 && isSuccessful(last) && (!last.overall || last.score > 0));
-    $('#spotlight-person').innerHTML = '<b class="spot-place">' + escapeHTML(currentTile.querySelector('.tile-rank').textContent) + '</b>' + currentTile.querySelector('.result-photo').innerHTML + '<strong>' + escapeHTML(last.name) + '</strong><p>' + escapeHTML(currentTile.querySelector('.result-value').textContent)+' · '+escapeHTML(currentTile.querySelector('.tile-caption small').textContent) + '</p>';
+    $('#spotlight-person').innerHTML = '<b class="spot-place">' + escapeHTML(currentTile.querySelector('.tile-rank').textContent) + '</b>' + currentTile.querySelector('.result-photo').innerHTML + '<strong>' + escapeHTML(last.name) + '</strong><p>' + escapeHTML(currentTile.querySelector('.result-value').textContent)+' · '+escapeHTML(currentTile.querySelector('.tile-detail').textContent) + '</p>';
     shownResults = count;
   }
   const done = count === total;

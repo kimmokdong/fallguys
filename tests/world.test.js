@@ -16,6 +16,26 @@ test('빙판은 관성과 드리프트가 크고, 벨트는 정지·역주행·�
   assert.ok(Math.abs(p.x+7)<.03 && Math.abs(p.z)<.01);assert.deepEqual(conveyorVelocity(c.platforms[0]),{x:-7,z:0});
 });
 
+test('숲속 팩토리의 벨트는 사방으로 운반하고 코너에서 쉬며 코스는 끊기지 않는다',()=>{
+  const c={...createCourse('neon-factory'),obstacles:[]};
+  const belts=c.platforms.filter(p=>p.type==='conveyor');
+  assert.equal(belts.length,8);
+  assert.equal(new Set(belts.map(p=>p.axis+Math.sign(p.speed))).size,4);
+  for(const belt of belts) {
+    assert.equal(supportAt(c,belt.x,belt.z,0).id,belt.id,'화살표가 있는 바닥이 실제 벨트');
+    const p=Object.assign(createRacer(),{x:belt.x,z:belt.z});
+    for(let i=0;i<18;i++) stepPlayers([p],[{}],c,(i+1)/90,1/90);
+    const velocity=conveyorVelocity(belt);
+    assert.ok(Math.abs(p.x-belt.x-velocity.x*.2)<.03 && Math.abs(p.z-belt.z-velocity.z*.2)<.03,'표시한 방향으로 실제 이동');
+    assert.equal(p.fallCount,0);
+  }
+  for(const n of c.path) assert.equal(supportAt(c,n.x,n.z,0).type,'normal','코너·깃발은 일반 바닥');
+  for(let i=1;i<c.path.length;i++) {
+    const a=c.path[i-1],b=c.path[i],steps=Math.ceil(Math.hypot(b.x-a.x,b.z-a.z)*2);
+    for(let j=0;j<=steps;j++) assert.ok(supportAt(c,a.x+(b.x-a.x)*j/steps,a.z+(b.z-a.z)*j/steps,0),'벨트 사이 빈틈 없음');
+  }
+});
+
 test('모든 선풍기는 강풍 때 1초에 몸 여러 개 너비를 밀지만 역방향 조작으로 버틸 수 있다',()=>{
   for(const map of MAPS) for(const rule of map.rules) {
     const source=createCourse(map.id,rule);
@@ -68,10 +88,10 @@ test('회전 원판은 서 있는 사람을 원을 따라 운반하고 원 밖�
   stepPlayers([airborne],[{}],c,2,1/90);assert.equal(airborne.x,0,'공중에서는 원판에 끌려가지 않음');
 });
 
-test('24개 맵의 지원 규칙, 30명 출발 지점과 서로 다른 동선', () => {
-  assert.equal(MAPS.length,24); assert.equal(new Set(MAPS.map(m=>m.id)).size,24);
-  assert.equal(MAPS.filter(m=>m.rules.includes('race')).length,16);
-  assert.equal(MAPS.filter(m=>m.rules.includes('survival')).length,10);
+test('28개 맵의 지원 규칙, 30명 출발 지점과 서로 다른 동선', () => {
+  assert.equal(MAPS.length,28); assert.equal(new Set(MAPS.map(m=>m.id)).size,28);
+  assert.equal(MAPS.filter(m=>m.rules.includes('race')).length,19);
+  assert.equal(MAPS.filter(m=>m.rules.includes('survival')).length,11);
   const signatures=new Set();
   for(const map of MAPS) for(const rule of map.rules) {
     const course=createCourse(map.id,rule);
@@ -85,7 +105,7 @@ test('24개 맵의 지원 규칙, 30명 출발 지점과 서로 다른 동선', 
     } else assert.equal(course.finish,null);
     for(const o of course.obstacles) for(const time of [0,1,10,60]) assert.ok(Object.values(obstaclePose(o,time)).every(v=>typeof v==='boolean'||Number.isFinite(v)));
   }
-  assert.equal(signatures.size,16);
+  assert.equal(signatures.size,19);
 });
 
 test('이동, 대각선 속도, 점프 에지, 다이브, 낙하 복귀와 완주 판정', () => {
