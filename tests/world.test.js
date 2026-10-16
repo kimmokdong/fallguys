@@ -358,7 +358,7 @@ test('소용돌이는 가만히 있으면 가운데로 끌고 바깥으로 달�
 
 test('가짜 발판은 밟자마자 떨어지고 다시 숨으며 겉모습 정보도 숨긴다',()=>{
   const c=createCourse('tiptoe-bridge'), fakes=c.platforms.filter(t=>t.fake), real=c.platforms.filter(t=>t.w===4.8&&!t.fake);
-  assert.ok(fakes.length>70 && real.length>=36);
+  assert.ok(fakes.length>70 && real.length>=32);
   assert.ok(fakes.every(t=>t.type==='collapse'&&t.delay<=.15&&t.recover>0));
   const tile=fakes[0], p=Object.assign(createRacer(),{x:tile.x,z:tile.z});
   c.obstacles=[];
@@ -379,17 +379,17 @@ test('엘리베이터는 탄 사람을 위층까지 올렸다가 다시 내린�
 test('용암은 시간에 따라 차오르고 닿으면 탈락, 3층 탑은 아래층이 받아 준다',()=>{
   const lava=createCourse('lava-rise','survival');
   assert.equal(floodLevel(lava,0),lava.flood.from); assert.ok(floodLevel(lava,40)>floodLevel(lava,20)); assert.ok(floodLevel(lava,999)<=lava.flood.max);
+  assert.ok(floodLevel(lava,42)>3,'40초 무렵 3단도 잠김');
+  const top=[[1.6,0],[0,-2.5],[3,3]].map(([x,dz])=>simulate(Object.assign(createRacer(),{x,z:27+dz,y:4.5}),lava,90*55,{},3));
+  assert.ok(top.every(p=>p.eliminated),'꼭대기에서 가만히 있으면 회전봉에 밀려 용암에 빠짐');
   lava.obstacles=[];
   const low=Object.assign(createRacer(),{x:0,z:3});
   simulate(low,lava,90,{},25);
   assert.equal(low.eliminated,true,'바깥 단은 용암에 잠김');
-  const top=Object.assign(createRacer(),{x:0,z:27,y:4.5});
-  simulate(top,lava,90,{},58);
-  assert.equal(top.eliminated,false,'꼭대기는 끝까지 안전');
   const tower=createCourse('triple-drop','survival');
   assert.equal(tower.spawnY,12);
   const p=createRacer(0,30,tower.spawnY);
   tower.collapsed[supportAt(tower,p.x,p.z,5,12.1).id]=0;
-  simulate(p,tower,120,{},5);
+  simulate(p,tower,80,{},5);
   assert.equal(p.eliminated,false); assert.equal(p.y,6,'가운데층에 착지');
 });

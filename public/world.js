@@ -20,8 +20,8 @@ const SLIDING = new Set(['bumper', 'log', 'slider']);
 const ROUND_HAZARDS = new Set(['bumper', 'pendulum', 'cushion']);
 
 export function signalState(timeSeconds) {
-  const time=Math.max(0,timeSeconds-6),round=Math.floor(time/7),phase=time%7;
-  return { group:[0,2,1,3,1,0,3,2][round%8], remaining:Math.max(0,4.5-phase)+Math.max(0,6-timeSeconds), open:timeSeconds>=6 && phase>=4.5 && phase<6.5 };
+  const time=Math.max(0,timeSeconds-6),round=Math.floor(time/5.5),phase=time%5.5;
+  return { group:[0,2,1,3,1,0,3,2][round%8], remaining:Math.max(0,3-phase)+Math.max(0,6-timeSeconds), open:timeSeconds>=6 && phase>=3 && phase<5 };
 }
 
 export function platformTiming(platform, timeSeconds, collapsed = {}) {
@@ -112,7 +112,7 @@ export function obstaclePose(obstacle, timeSeconds) {
   const angle = timeSeconds * (obstacle.speed || 0) + (obstacle.phase || 0);
   if (obstacle.type === 'spinner') rotation = angle;
   if(obstacle.type==='maze-wall') {
-    const time=timeSeconds+obstacle.phase,phase=time%obstacle.period,q=clamp((phase-6)/2,0,1);
+    const time=timeSeconds+obstacle.phase,phase=time%obstacle.period,q=clamp((phase-obstacle.period+2)/2,0,1);
     rotation=(Math.floor(time/obstacle.period)+q*q*(3-2*q))*Math.PI/2;
   }
   if (obstacle.type === 'gate') y += (Math.sin(angle) + 1) * obstacle.range / 2;
@@ -122,7 +122,7 @@ export function obstaclePose(obstacle, timeSeconds) {
     else x += Math.sin(angle) * obstacle.range;
   }
   let warning = false;
-  if(obstacle.type==='maze-wall') warning=(timeSeconds+obstacle.phase)%obstacle.period>=5 && (timeSeconds+obstacle.phase)%obstacle.period<6;
+  if(obstacle.type==='maze-wall') { const phase=(timeSeconds+obstacle.phase)%obstacle.period; warning=phase>=obstacle.period-3 && phase<obstacle.period-2; }
   let extension = 0;
   if (obstacle.type === 'puncher') {
     const q = ((timeSeconds + (obstacle.phase || 0)) % obstacle.period + obstacle.period) % obstacle.period;
@@ -236,8 +236,8 @@ export function stepPlayer(player, input = {}, course, timeSeconds, delta, settl
     const belt = conveyorVelocity(floor); driftX = belt.x; driftZ = belt.z;
   }
   if(player.grounded && floor.type==='seesaw') {
-    driftX=-Math.sin(floor.rotation)*floor.rise/floor.run*8;
-    driftZ=-Math.cos(floor.rotation)*floor.rise/floor.run*8;
+    driftX=-Math.sin(floor.rotation)*floor.rise/floor.run*12;
+    driftZ=-Math.cos(floor.rotation)*floor.rise/floor.run*12;
   }
   const sheltered = course.rule === 'survival' && timeSeconds < P.survivalGrace;
   for (const obstacle of course.obstacles) {
@@ -379,7 +379,7 @@ export function stepPlayers(players, inputs, course, timeSeconds, delta) {
     for(const board of course.platforms) if(board.type==='seesaw') {
       const passengers=players.filter(p=>p.grounded && p.supportId===board.id && !p.finished && !p.eliminated);
       const torque=passengers.reduce((sum,p)=>sum+(p.x-board.x)*Math.sin(board.rotation)+(p.z-board.z)*Math.cos(board.rotation),0);
-      const before=course.collapsed[board.id]||0,target=clamp(-torque/board.d*.12,-.22,.22);
+      const before=course.collapsed[board.id]||0,target=clamp(-torque/board.d*.12,-.3,.3);
       const after=Math.round((before+clamp(target-before,-dt/steps*.5,dt/steps*.5))*1000)/1000;
       // 시소 기울기도 기존 발판 상태 패킷으로 보내 물리와 화면을 일치시킵니다.
       course.collapsed[board.id]=after;
