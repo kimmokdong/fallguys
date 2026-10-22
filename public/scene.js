@@ -6,6 +6,8 @@ import { AutoGraphics, GRAPHICS_LEVELS, renderPixelRatio } from './graphics.js';
 const WHITE = '#d9d2bc', INK = '#293b32', GOLD = '#c5a15a';
 const CAMP = { floor: '#638364', wood: '#785b40', edge: '#344839', trim: '#bba477', hazard: '#b85c37', helper: '#c5a15a', trees: '#3c654e' };
 
+export const layerFaded=(mapId,layerY,playerY)=>mapId==='triple-drop' && playerY!=null && layerY>playerY+2;
+
 // 동일한 형태와 재질을 공유하여 30명이 함께 있어도 모델 비용을 줄인다.
 export class GameScene {
   constructor(canvas) {
@@ -23,7 +25,7 @@ export class GameScene {
     this.renderer.toneMappingExposure = 0.94;
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(40, 1, 0.1, 280);
-    this.materials = new Map();
+    this.materials = new Map(); this.fadedMaterials = new Map();
     this.portraits = new Map();
     this.geometries = {
       sphere: new THREE.SphereGeometry(1, 16, 12),
@@ -93,6 +95,22 @@ export class GameScene {
     const key = color + JSON.stringify(options);
     if (!this.materials.has(key)) this.materials.set(key, new THREE.MeshStandardMaterial({ color, roughness: 0.82, metalness: 0, ...options }));
     return this.materials.get(key);
+  }
+
+  // 위층에 남은 발판과 사람은 보이되 아래층을 가리지 않도록, 공유 재질 대신 반투명 복제본을 끼웁니다.
+  fadeLayer(group, faded) {
+    group.userData.faded = faded;
+    group.traverse(mesh => {
+      if (!mesh.isMesh) return;
+      if (faded) {
+        const solid = mesh.material;
+        if (!this.fadedMaterials.has(solid)) this.fadedMaterials.set(solid, Object.assign(solid.clone(), { transparent: true, opacity: .25, depthWrite: false }));
+        mesh.userData.solid = { material: solid, castShadow: mesh.castShadow };
+        mesh.material = this.fadedMaterials.get(solid); mesh.castShadow = false;
+      } else if (mesh.userData.solid) {
+        mesh.material = mesh.userData.solid.material; mesh.castShadow = mesh.userData.solid.castShadow; mesh.userData.solid = null;
+      }
+    });
   }
 
   mesh(parent, shape, color, position, scale, options = {}) {
@@ -651,6 +669,10 @@ export class GameScene {
         pivot.rotation.y=platform.rotation;
         const label=this.label('균형을 잡아요',INK,GOLD,4); label.position.set(0,1.6,0); group.add(label);
       }
+      if(platform.type==='float') {
+        const label=this.label('상승 뗏목',INK,GOLD,3.4); label.position.set(0,1.3,0); group.add(label);
+        for(let x=-platform.w/2+1;x<platform.w/2;x+=2) this.box(group,GOLD,[x,.07,0],[.12,.05,platform.d-.6]);
+      }
       if(platform.type==='signal') {
         const mark=signalMarks[platform.signalGroup].clone(); mark.position.set(0,.6,0); group.add(mark);
       }
@@ -675,8 +697,8 @@ export class GameScene {
       const tell = ['disappear','collapse','sink','signal'].includes(platform.type) && !platform.fake;
       if (tell) this.ring(group, '#fff7d7', [0, 0.07, 0], [Math.min(platform.w, platform.d) * 0.26, Math.min(platform.w, platform.d) * 0.26, 0.65], true);
       if (tell) {
-        const warning = this.label('곧 사라져요!' , '#a24e28', '#fff1cf', 4.4);
-        warning.position.set(0, 1.25, 0); warning.visible = false; group.add(warning);
+        const warning = this.label(course.id==='lava-rise'?'곧 분화해요!':'곧 사라져요!' , '#a24e28', '#fff1cf', 4.4);
+        warning.position.set(0, 1.25, course.id==='lava-rise'?-platform.d/2+.8:0); warning.visible = false; group.add(warning);
         const bar = this.box(group, GOLD, [0, 0.1, -platform.d / 2 + 0.8], [platform.w - 1, 0.09, 0.35]);
         group.userData.warning = warning; group.userData.warningBar = bar;
       }
@@ -692,7 +714,7 @@ export class GameScene {
         for (const x of [-1, 1]) for (const z of [-1, 1]) this.box(this.content, CAMP.wood, [platform.x + x * (platform.w / 2 + .3), platform.y + .4, platform.z + z * (platform.d / 2 + .3)], [.28, platform.range * 2 + 2.2, .28]);
       }
       this.content.add(group);
-      if (['moving', 'disappear', 'collapse', 'sink', 'conveyor','seesaw','signal'].includes(platform.type)) {
+      if (['moving', 'float', 'disappear', 'collapse', 'sink', 'conveyor','seesaw','signal'].includes(platform.type)) {
         this.batchLocalMeshes(group, [group.userData.warningBar]);
         this.platforms.push({ data: platform, group });
       }
@@ -931,7 +953,7 @@ export class GameScene {
     const size = GRAPHICS_LEVELS[this.graphics.level].shadowSize, enabled = size > 0;
     if (this.renderer.shadowMap.enabled !== enabled) {
       this.renderer.shadowMap.enabled = enabled;
-      for (const material of this.materials.values()) material.needsUpdate = true;
+      for (const material of [...this.materials.values(), ...this.fadedMaterials.values()]) material.needsUpdate = true;
     }
     if (size && size !== this.sun.shadow.mapSize.x) {
       this.sun.shadow.map?.dispose(); this.sun.shadow.map = null;
@@ -976,7 +998,7 @@ export class GameScene {
       const elapsed = Math.min((now - this.stateReceived) / 1000, 0.2);
       const serverTime = this.stateTime + elapsed;
       for (const { data, group } of this.obstacles) {
-        const pose = obstaclePose(data, serverTime);
+        const pose = obstaclePose(data, serverTime, this.course);
         group.position.set(pose.x, pose.y ?? data.y ?? 0, pose.z);
         group.rotation.y = pose.rotation || 0;
         group.visible = pose.active !== false;
@@ -1000,12 +1022,13 @@ export class GameScene {
         });
       }
       if (this.flood) { this.flood.position.y = floodLevel(this.course, serverTime) - .1 + Math.sin(t * 2) * .03; }
+      const focus=this.players.get(this.followId || this.playerId)?.target;
       for (const { data, group } of this.platforms) {
-        const pose=platformPose(data,serverTime,this.course.collapsed); group.position.set(pose.x,pose.y,pose.z);
+        const pose=platformPose(data,serverTime,this.course.collapsed,this.course); group.position.set(pose.x,pose.y,pose.z);
         if(data.type==='rotating') group.rotation.y=pose.rotation;
         if(data.type==='seesaw') {
-          group.rotation.x=-Math.atan2(pose.rise,pose.run);
-          group.scale.z=Math.hypot(pose.run,pose.rise)/pose.run;
+          group.rotation.z=Math.atan2(pose.rise,pose.run);
+          group.scale.x=Math.hypot(pose.run,pose.rise)/pose.run;
         }
         if(group.userData.fabric) {
           const age=(now-(this.springEffects.get(data.id)??-Infinity))/1000;
@@ -1030,6 +1053,9 @@ export class GameScene {
             group.userData.warningBar.visible = timing.warning;
           }
         }
+        const faded=layerFaded(this.course.id,data.y,focus?.y);
+        if(!!group.userData.faded!==faded) this.fadeLayer(group,faded);
+        if(faded && group.userData.warning) { group.userData.warning.visible=false; group.userData.warningBar.visible=false; }
       }
       const alpha = 1 - Math.exp(-16 * dt);
       for (const player of this.players.values()) {
@@ -1137,7 +1163,7 @@ export class GameScene {
     this.clearContent();
     for (const geometry of [...Object.values(this.geometries), ...Object.values(this.lowGeometries)]) geometry.dispose();
     this.contactMaterial.dispose();
-    for (const material of this.materials.values()) material.dispose();
+    for (const material of [...this.materials.values(), ...this.fadedMaterials.values()]) material.dispose();
     this.renderer.dispose();
   }
 }

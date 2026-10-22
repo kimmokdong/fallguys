@@ -66,8 +66,9 @@ export function floodLevel(course, t) {
   return f ? Math.min(f.max, f.from + Math.max(0, t - f.start) * f.rate) : -Infinity;
 }
 
-export function platformPose(platform, timeSeconds, state = {}) {
-  if(platform.type==='seesaw') return {...platform,rise:platform.d*(state[platform.id]||0)};
+export function platformPose(platform, timeSeconds, state = {}, course = {}) {
+  if(platform.type==='float') return {...platform,y:Math.max(platform.y,floodLevel(course,timeSeconds)+platform.clearance)};
+  if(platform.type==='seesaw') return {...platform,rise:platform.w*Math.tan(state[platform.id]||0),run:platform.w};
   if (platform.type === 'rotating') return { ...platform, rotation: (platform.rotation || 0) + timeSeconds * platform.speed };
   if (platform.type !== 'moving') return platform;
   const pose = { ...platform };
@@ -93,7 +94,7 @@ function boost(player, pad) {
   const along = player.vx * dx + player.vz * dz;
   player.vx = (player.vx - along * dx) * .3 + dx * power;
   player.vz = (player.vz - along * dz) * .3 + dz * power;
-  player.vy = PHYSICS.boostLift; player.bounceCooldown = .6;
+  player.vy = pad.lift ?? PHYSICS.boostLift; player.bounceCooldown = .6;
   spring(player, pad, 3);
 }
 
@@ -105,9 +106,10 @@ function spring(player, source, kind) {
   player.grounded = false; player.coyoteTime = 0; player.jumpBuffer = 0;
 }
 
-export function obstaclePose(obstacle, timeSeconds) {
+export function obstaclePose(obstacle, timeSeconds, course) {
   let { x, z } = obstacle;
   let y = obstacle.y || 0;
+  if(obstacle.float && course) y=Math.max(y,floodLevel(course,timeSeconds)+obstacle.clearance);
   let rotation = 0;
   const angle = timeSeconds * (obstacle.speed || 0) + (obstacle.phase || 0);
   if (obstacle.type === 'spinner') rotation = angle;
@@ -153,12 +155,12 @@ export function supportAt(course, x, z, timeSeconds, ceiling = Infinity) {
   const margin = PHYSICS.supportMargin;
   let best = null, bestY = -Infinity;
   for (const platform of course.platforms) {
-    const p = platformPose(platform, timeSeconds, course.collapsed), rotation = p.rotation || 0;
+    const p = platformPose(platform, timeSeconds, course.collapsed, course), rotation = p.rotation || 0;
     const cos = rotation ? Math.cos(rotation) : 1, sin = rotation ? Math.sin(rotation) : 0;
     const dx = x - p.x, dz = z - p.z, lx = dx * cos - dz * sin, lz = dx * sin + dz * cos;
     const inside = p.type === 'rotating' ? Math.hypot(lx / (p.w / 2 + margin), lz / (p.d / 2 + margin)) < 1 : Math.abs(lx) < p.w / 2 + margin && Math.abs(lz) < p.d / 2 + margin;
     if (!inside) continue;
-    const y = p.y + (p.rise ? clamp(lz / p.run, -.5, .5) * p.rise : 0);
+    const y = p.y + (p.rise ? clamp((p.type==='seesaw'?lx:lz) / p.run, -.5, .5) * p.rise : 0);
     // 같은 높이면 나중에 만든 발판(깃발 받침 등)을 우선합니다.
     if (y <= ceiling && (!best || y >= bestY) && platformActive(p, timeSeconds, course.collapsed)) { best = p; bestY = y; }
   }
@@ -178,11 +180,11 @@ export function stepPlayer(player, input = {}, course, timeSeconds, delta, settl
   player.jumpHeld = !!input.jump; player.diveHeld = !!input.dive;
   // 이번 단계에 발판을 밟았는지 기록합니다. 착지 직후 예약 점프로 떠도 붕괴·깃발 판정에 사용합니다.
   player.touched = false;
-  for (const key of ['diveCooldown', 'hitCooldown', 'bounceCooldown', 'bumpTime', 'ghostTime', 'springControl']) player[key] = Math.max(0, (player[key] || 0) - dt);
+  for (const key of ['diveCooldown', 'diveTime', 'hitCooldown', 'bounceCooldown', 'bumpTime', 'ghostTime', 'springControl']) player[key] = Math.max(0, (player[key] || 0) - dt);
   if (player.grounded && player.supportId) {
     const platform = platformById(course, player.supportId);
-    if (platform?.type === 'moving') {
-      const before = platformPose(platform, Math.max(0, timeSeconds - dt)), after = platformPose(platform, timeSeconds);
+    if (platform?.type === 'moving' || platform?.type === 'float') {
+      const before = platformPose(platform, Math.max(0, timeSeconds - dt), course.collapsed, course), after = platformPose(platform, timeSeconds, course.collapsed, course);
       player.x += after.x - before.x; player.y += after.y - before.y; player.z += after.z - before.z;
     }
     if (platform?.type === 'rotating') {
@@ -219,6 +221,9 @@ export function stepPlayer(player, input = {}, course, timeSeconds, delta, settl
     player.vx += (ix * runSpeed - player.vx) * smoothing;
     player.vz += (iz * runSpeed - player.vz) * smoothing;
   }
+  if(player.grounded && floor.type==='rotating' && floor.fling) {
+    player.vx+=(player.x-floor.x)*floor.fling*dt; player.vz+=(player.z-floor.z)*floor.fling*dt;
+  }
   if (magnitude > 0.1) player.yaw = Math.atan2(ix, iz);
   if (player.grounded && floor.type === 'boost' && player.bounceCooldown <= 0) boost(player, floor);
   else if (player.jumpBuffer > 0 && player.coyoteTime > 0) {
@@ -229,6 +234,7 @@ export function stepPlayer(player, input = {}, course, timeSeconds, delta, settl
     player.vx = Math.sin(direction) * P.diveSpeed; player.vz = Math.cos(direction) * P.diveSpeed;
     player.vy = player.grounded ? P.diveLift : Math.min(player.vy, P.diveAirLift);
     player.grounded = false; player.diveCooldown = P.diveCooldown;
+    player.diveTime=.45; player.diveHits=new Set();
     player.coyoteTime = 0; player.jumpBuffer = 0;
   }
   let driftX = 0; let driftZ = 0;
@@ -236,8 +242,8 @@ export function stepPlayer(player, input = {}, course, timeSeconds, delta, settl
     const belt = conveyorVelocity(floor); driftX = belt.x; driftZ = belt.z;
   }
   if(player.grounded && floor.type==='seesaw') {
-    driftX=-Math.sin(floor.rotation)*floor.rise/floor.run*12;
-    driftZ=-Math.cos(floor.rotation)*floor.rise/floor.run*12;
+    driftX=-Math.cos(floor.rotation)*floor.rise/floor.run*12;
+    driftZ=Math.sin(floor.rotation)*floor.rise/floor.run*12;
   }
   const sheltered = course.rule === 'survival' && timeSeconds < P.survivalGrace;
   for (const obstacle of course.obstacles) {
@@ -292,14 +298,14 @@ function resolveCourseContacts(player, course, timeSeconds, hazards = true) {
   let moved = false;
   // 높은 발판의 옆면 충돌도 처리해 계단 내부로 뚫고 들어가지 않게 합니다.
   for (const platform of course.platforms) {
-    const p = platformPose(platform, timeSeconds, course.collapsed);
+    const p = platformPose(platform, timeSeconds, course.collapsed, course);
     if (p.rise || p.y <= player.y + P.stepTolerance || p.y - P.platformThickness >= player.y + P.bodyHeight || !platformActive(p, timeSeconds, course.collapsed)) continue;
     if (resolveBox(player, p.x, p.z, p.w, p.d, p.rotation || 0, p.type === 'rotating')) moved = true;
   }
   if (course.rule === 'survival' && timeSeconds < P.survivalGrace) return moved;
   for (const obstacle of course.obstacles) {
     if (obstacle.type === 'fan' || obstacle.type === 'vortex') continue;
-    const pose = obstaclePose(obstacle, timeSeconds);
+    const pose = obstaclePose(obstacle, timeSeconds, course);
     if (player.y >= pose.y + obstacle.h || player.y + P.bodyHeight <= pose.y) continue;
     const incomingX = player.vx, incomingZ = player.vz;
     const hit = resolveBox(player, pose.x, pose.z, obstacle.w, obstacle.d, pose.rotation, ROUND_HAZARDS.has(obstacle.type));
@@ -363,7 +369,7 @@ function settlePlayer(player, course, timeSeconds) {
     const point = course.checkpoints[player.checkpoint] || { x: player.spawnX, y: course.spawnY || 0, z: player.spawnZ };
     player.x = point.x; player.y = point.y + .15; player.z = point.z;
     player.vx = 0; player.vy = 0; player.vz = 0; player.grounded = false; player.supportId = null;
-    player.surface = 0; player.springControl = 0;
+    player.surface = 0; player.springControl = 0; player.diveTime=0;
     player.fallCount++; player.hitCooldown = P.respawnHitCooldown; player.ghostTime = P.respawnGhost;
     player.coyoteTime = 0; player.jumpBuffer = 0;
   }
@@ -378,12 +384,15 @@ export function stepPlayers(players, inputs, course, timeSeconds, delta) {
     const time = timeSeconds - dt + (step + 1) * dt / steps;
     for(const board of course.platforms) if(board.type==='seesaw') {
       const passengers=players.filter(p=>p.grounded && p.supportId===board.id && !p.finished && !p.eliminated);
-      const torque=passengers.reduce((sum,p)=>sum+(p.x-board.x)*Math.sin(board.rotation)+(p.z-board.z)*Math.cos(board.rotation),0);
-      const before=course.collapsed[board.id]||0,target=clamp(-torque/board.d*.12,-.3,.3);
-      const after=Math.round((before+clamp(target-before,-dt/steps*.5,dt/steps*.5))*1000)/1000;
+      const localX=p=>(p.x-board.x)*Math.cos(board.rotation)-(p.z-board.z)*Math.sin(board.rotation);
+      const torque=passengers.reduce((sum,p)=>sum+localX(p),0);
+      const before=course.collapsed[board.id]||0,step=dt/steps;
+      const next=passengers.length?before+(Math.abs(torque)<.05?0:clamp(-torque/board.w*.8,-.45,.45))*step:before+clamp(-before,-.15*step,.15*step);
+      // 0.001 단위로 맞춰 값이 그대로면 상태 패킷에 다시 싣지 않고, 빈 시소는 정확히 수평에서 멈춥니다.
+      const after=Math.round(clamp(next,-.35,.35)*1000)/1000;
       // 시소 기울기도 기존 발판 상태 패킷으로 보내 물리와 화면을 일치시킵니다.
       course.collapsed[board.id]=after;
-      for(const p of passengers) p.y+=((p.x-board.x)*Math.sin(board.rotation)+(p.z-board.z)*Math.cos(board.rotation))*(after-before);
+      for(const p of passengers) p.y+=localX(p)*(Math.tan(after)-Math.tan(before));
     }
     // 생존전 시작 보호 시간에는 몸이 겹치지 않게만 하고 밀쳐내는 충격은 주지 않습니다.
     const sheltered = course.rule === 'survival' && time < P.survivalGrace;
@@ -404,6 +413,13 @@ export function stepPlayers(players, inputs, course, timeSeconds, delta) {
           const angle = (i * 17 + j * 7) * 2.39996;
           const nx = distance > 0.0001 ? dx / distance : Math.cos(angle);
           const nz = distance > 0.0001 ? dz / distance : Math.sin(angle);
+          if(!sheltered) for(const [attacker,target,sign] of [[a,b,1],[b,a,-1]]) {
+            const speed=Math.hypot(attacker.vx,attacker.vz)||1,x=attacker.vx/speed,z=attacker.vz/speed;
+            if(attacker.diveTime>0 && !attacker.diveHits.has(target) && (x*nx+z*nz)*sign>.5) {
+              attacker.diveHits.add(target); target.vx+=x*16; target.vz+=z*16;
+              target.vy=Math.max(target.vy,3); target.grounded=false; target.bumpTime=.3;
+            }
+          }
           a.x -= nx * overlap / 2; a.z -= nz * overlap / 2;
           b.x += nx * overlap / 2; b.z += nz * overlap / 2;
           const closing = (a.vx - b.vx) * nx + (a.vz - b.vz) * nz;

@@ -3,8 +3,8 @@ const palette = (floor, sky = '#8d9c8b', accent = '#b85c37') => ({ floor, sky, a
 const map = (id, name, emoji, difficulty, description, tags, colors, rules = ['race'], final = false) => ({ id, name, emoji, difficulty, description, subtitle: tags.join(' · '), tags, colors, rules, final, maxPlayers: 30 });
 export const MAPS = [
   map('jelly-garden', '젤리 정원', '🌷', 1, '젤리 쿠션에 달려들면 통통 튕겨요. 굽이치는 정원길의 번호 깃발을 지나세요.', ['S자 산책길', '탄성 쿠션'], palette('#638364')),
-  map('spin-city', '빙글빙글 시티', '🌀', 2, '원판과 함께 몸이 돌아가요! 원하는 출구에서 내리고 회전봉은 점프로 피하세요.', ['회전 원판', '회전봉'], palette('#5d7553'), ['race', 'survival'], true),
-  map('cloud-hop', '구름 징검다리', '☁️', 2, '노란 트램펄린은 높이 띄워줘요. 공중에서 방향을 잡아 다음 섬에 착지하세요.', ['공중 섬', '트램펄린'], palette('#799075')),
+  map('spin-city', '빙글빙글 시티', '🌀', 2, '두 배 빠른 원판은 가장자리로 밀어내요! 안쪽으로 버티다가 원하는 출구에서 내리세요.', ['원심력 원판', '회전봉'], palette('#5d7553'), ['race', 'survival'], true),
+  map('cloud-hop', '구름 징검다리', '☁️', 2, '화살표 트램펄린이 바로 다음 섬으로 보내줘요. 방향을 맞춰 밟고 착지하세요.', ['공중 섬', '방향성 트램펄린'], palette('#799075')),
   map('ice-express', '아이스 익스프레스', '🧊', 2, '손을 떼도 쭉 미끄러져요. U자 코너 전에 반대 방향으로 브레이크를 잡으세요.', ['드리프트 빙판', '이동 장애물'], palette('#4c7a78', '#8b9d96')),
   map('neon-factory', '숲속 팩토리', '⚙️', 2, '앞뒤·좌우로 흐르는 벨트! 화살표를 보고 방향을 잡고 역방향은 점프로 넘으세요.', ['사방 컨베이어', '압축기'], palette('#637665', '#697d72', '#c5a15a')),
   map('wind-valley', '바람 골짜기', '🌬️', 2, '지그재그 능선을 따라가요. 바람을 맞으면 바위 뒤에서 숨을 고르세요.', ['지그재그 능선', '돌풍'], palette('#8c835c', '#a4a18b')),
@@ -15,21 +15,21 @@ export const MAPS = [
   map('pinball-park', '핀볼 파크', '🎯', 2, '젤리 쿠션의 탄성과 트램펄린을 이용해 날아가요. 번호 깃발은 차례로 지나세요.', ['탄성 쿠션', '트램펄린'], palette('#638663', '#929f86', '#c5a15a')),
   map('chaos-crown', '왕관 대소동', '👑', 3, '바깥 능선을 돌아 중앙 정상으로! 회전 다리 뒤 왕관에 먼저 닿으세요.', ['중앙 왕관', '입체 결승'], palette('#6d7d58', '#7d8d7b'), ['race'], true),
   map('leaf-square', '낙엽 마당', '🍂', 2, '발판을 밟으면 1초 뒤 사라져요. 빈자리로 움직이며 마지막까지 버티세요.', ['생존', '발판 붕괴'], palette('#988357', '#929780', '#b85c37'), ['survival'], true),
-  map('log-lake', '통나무 호수', '🪵', 2, '낮은 통나무는 점프로! 서로 다른 방향에서 굴러오는 통나무를 피하세요.', ['생존', '굴러오는 통나무'], palette('#658572', '#81968b'), ['survival'], true),
+  map('log-lake', '통나무 호수', '🪵', 2, '약 1.6배 빨라진 통나무는 점프로! 두 방향의 서로 다른 속도를 보고 피하세요.', ['생존', '굴러오는 통나무'], palette('#658572', '#81968b'), ['survival'], true),
   map('storm-island', '폭풍 섬', '🌪️', 3, '돌풍과 움직이는 벽이 밀어내요. 가장자리 발판은 경고 후 물에 잠겨요.', ['생존', '좁아지는 섬'], palette('#778365', '#7a8a80', '#c5a15a'), ['survival'], true),
   map('tide-tiles', '물결 징검마당', '🌊', 2, '초록 발판을 골라 점프하세요. 주황색 발판은 1초 뒤 잠겨요.', ['생존', '주기적인 침수'], palette('#4f7f77', '#8b9d96', '#c5a15a'), ['survival'], true),
-  map('rocket-road', '로켓 고속도로', '🚀', 2, '노란 부스터를 밟으면 앞으로 휙 날아가요. 펀치 벽은 "펀치!" 경고가 뜨면 반대쪽으로 피하세요.', ['가속 패드', '펀치 벽'], palette('#6f7a6a', '#9aa39a', '#d08a3a')),
+  map('rocket-road', '로켓 고속도로', '🚀', 2, '부스터는 약 네 배 멀리 날려요! 정면으로 밟아 다음 직선에 착지하고 펀치 경고를 피하세요.', ['장거리 부스터', '펀치 벽'], palette('#6f7a6a', '#9aa39a', '#d08a3a')),
   map('choco-swamp', '초코 진흙탕', '🍫', 3, '진흙 위는 느리고 점프도 낮아요. 커다란 소용돌이가 진흙까지 끌어당기니 멈추지 말고 비스듬히 버티며 달리세요.', ['끈적 진흙', '소용돌이'], palette('#6e7d5c', '#93998a', '#a0663c')),
   map('tiptoe-bridge', '진짜 발판 찾기', '🔍', 3, '똑같아 보여도 대부분 가짜 발판! 밟으면 바로 떨어져요. 앞사람이 지나간 길을 기억하세요.', ['가짜 발판', '기억력'], palette('#5f7b80', '#8fa0a3', '#c5a15a'), ['race'], true),
   map('sky-tower', '하늘 엘리베이터', '🛗', 2, '경사길로 돌아 올라가도 되고, 가운데 엘리베이터를 타면 지름길! 타이밍을 맞춰 올라타세요.', ['엘리베이터', '입체 지름길'], palette('#6a7f86', '#a7b4b6', '#c5a15a')),
-  map('lava-rise', '용암 피라미드', '🌋', 3, '용암이 빠르게 차올라요! 좁은 꼭대기는 회전봉이 쓸고 지나가니 점프로 넘으며 버티세요.', ['생존', '차오르는 용암'], palette('#7c6d58', '#a08c7c', '#e0612f'), ['survival'], true),
-  map('triple-drop', '3층 붕괴 탑', '🥞', 3, '밟은 발판은 사라지고 아래층으로 떨어져요. 3층을 모두 잃으면 탈락! 빈자리를 남겨 두며 움직이세요.', ['생존', '3층 붕괴'], palette('#8a7f60', '#9b9f93', '#c5a15a'), ['survival'], true),
-  map('whirlpool-bay', '소용돌이 만', '🐙', 3, '가운데 구멍이 모두를 빨아들여요. 바깥으로 달려 버티고 낮게 도는 막대는 점프로 넘으세요. 선착장은 15초, 바깥 고리는 40초부터 잠겨요.', ['생존', '소용돌이'], palette('#4d7a7d', '#86a0a0', '#c5a15a'), ['survival']),
+  map('lava-rise', '용암 피라미드', '🌋', 3, '정상은 주황 경고 뒤 분화하며 사라져요! 용암 위로 떠오르는 바깥 뗏목과 정상을 오가세요.', ['정상 분화', '상승 뗏목'], palette('#7c6d58', '#a08c7c', '#e0612f'), ['survival'], true),
+  map('triple-drop', '3층 붕괴 탑', '🥞', 3, '밟은 발판은 사라지고 아래층으로 떨어져요. 위층은 화면에서 숨겨져 내 층이 보여요. 3층을 모두 잃으면 탈락!', ['생존', '3층 붕괴'], palette('#8a7f60', '#9b9f93', '#c5a15a'), ['survival'], true),
+  map('whirlpool-bay', '소용돌이 만', '🐙', 3, '더 강해진 중심 흡입! 바깥으로 달려 버티고 낮게 도는 막대는 점프로 넘으세요. 선착장은 15초, 바깥 고리는 40초부터 잠겨요.', ['생존', '강한 소용돌이'], palette('#4d7a7d', '#86a0a0', '#c5a15a'), ['survival']),
   map('punch-arena', '펀치 링', '🥊', 3, '사방에서 펀치가 튀어나와요! 모서리 부스터는 탈출용이지만 잘못 타면 밖으로 날아가요. 막판엔 바깥 줄이 잠겨요.', ['생존', '펀치 벽'], palette('#7a7460', '#9d9a8c', '#d0603f'), ['survival']),
-  map('seesaw-trail', '시소 숲길', '⚖️', 2, '사람이 몰린 쪽으로 시소가 기울어요. 균형을 잡고 높은 끝에서는 점프로 건너세요.', ['무게 시소', '균형 잡기'], palette('#6e8762', '#94a08b', '#c5a15a')),
+  map('seesaw-trail', '시소 숲길', '⚖️', 2, '좌우 무게 차이가 남으면 계속 기울어요! 균형을 잡으면 현재 기울기를 유지해요.', ['좌우 시소', '균형 잡기'], palette('#6e8762', '#94a08b', '#c5a15a')),
   map('signal-square', '신호등 광장', '🚦', 2, '화면에 표시된 색·모양의 발판으로! 시간이 끝나면 나머지 바닥이 열려요.', ['생존', '색·모양 신호'], palette('#718477', '#97a398', '#c5a15a'), ['survival'], true),
-  map('rotating-maze', '회전 미로', '🧭', 2, '큰 벽이 돌아가며 길이 바뀌어요. 경고를 보고 열린 길을 찾거나 잠시 기다리세요.', ['회전 벽', '경로 선택'], palette('#637a69', '#909d8e', '#bd9761')),
-  map('snow-jumps', '눈꽃 점프대', '❄️', 3, '빙판 내리막에서 가속해 다섯 번 연속 점프! 속도를 유지하고 좌우로 조향하세요. 떨어지면 처음부터!', ['가속 빙판', '연속 점프'], palette('#638b99', '#9bb0b7', '#c5a15a')),
+  map('rotating-maze', '회전 미로', '🧭', 2, '가장자리는 막혀 있어요. 큰 벽이 돌아가며 열리는 틈을 보고 통과하세요.', ['회전 벽', '타이밍 통로'], palette('#637a69', '#909d8e', '#bd9761')),
+  map('snow-jumps', '눈꽃 점프대', '❄️', 3, '전진 입력 없이 내리막에서 미끄러져 다섯 번 연속 점프! 좌우로 조향하고 떨어지면 처음부터!', ['자연 가속', '연속 점프'], palette('#638b99', '#9bb0b7', '#c5a15a')),
 ];
 
 export const SIGNALS = [
@@ -84,19 +84,20 @@ export function createCourse(mapId, rule = 'race') {
         Object.assign(tile, { type:'signal', signalGroup, color:SIGNALS[signalGroup].color });
       }
     }
-    if (info.id === 'spin-city') { c.platforms = []; turntable(0,6,29,.55); spin(0, 6, 22, .85); spin(0, 6, 19, -.7, 2.1); }
-    if (info.id === 'log-lake') { log(0, 6, 23, 'z', 14); o('log', 0, 6, 1.2, 23, 1, { axis: 'x', range: 14, speed: .65, phase: 1.9 }); }
+    if (info.id === 'spin-city') { c.platforms = []; Object.assign(turntable(0,6,29,1.1),{fling:9}); spin(0, 6, 22, .85); spin(0, 6, 19, -.7, 2.1); }
+    if (info.id === 'log-lake') { log(0, 6, 23, 'z', 14); c.obstacles.at(-1).speed=1.35; o('log', 0, 6, 1.2, 23, 1, { axis: 'x', range: 14, speed: 1.05, phase: 1.9 }); }
     if (info.id === 'storm-island') { fan(0, 6, 24, 24, 100); o('slider', 0, 6, 1, 15, 2, { range: 10, speed: .6 }); }
     if (info.id === 'tide-tiles') spin(0, 6, 17, .6);
     if (info.id === 'signal-square') spin(0, 6, 22, .55);
     if (info.id === 'lava-rise') {
       // 출발 줄은 가장 낮은 바깥 단에 있고, 가운데로 갈수록 1.5씩 높아집니다.
-      p(0, 27, 52, 52); p(0, 27, 32, 32, 1.5); p(0, 27, 20, 20, 3); p(0, 27, 8, 8, 4.5);
-      // 40초 무렵 3단까지 잠기고, 꼭대기는 회전봉이 쓸고 돌아 가만히 서 있을 수 없습니다.
+      p(0, 27, 52, 52); p(0, 27, 32, 32, 1.5); p(0, 27, 20, 20, 3); p(0, 27, 8, 8, 4.5,{type:'disappear',warmup:15,period:9});
+      for(const [x,z] of [[0,9],[0,45],[-18,27],[18,27]]) p(x,z,x?16:8,x?8:16,0,{type:'float',clearance:.65});
+      // 정상 분화 때는 수위를 따라 오르는 바깥 뗏목으로 피할 수 있습니다.
       c.flood = { start: 6, rate: .12, from: -1, max: 4.2, color: '#e0612f' };
       o('wall', 0, 27, 1.6, 1.6, 3, { y: 4.5 }); spin(0, 27, 9, 1.25, 4.75);
       for (const [z, phase] of [[19.5, 0], [34.5, 2]]) bumper(0, z, { axis: 'x', range: 7, speed: 1.1, y: 3, phase });
-      for (const [x, z, axis, phase] of [[0, 5, 'x', Math.PI / 2], [0, 48, 'x', 2], [-21, 27, 'z', 1], [21, 27, 'z', 3]]) bumper(x, z, { axis, range: 15, speed: .7, phase });
+      for (const [x, z, axis, phase] of [[0, 9, 'x', Math.PI / 2], [0, 45, 'x', 2], [-18, 27, 'z', 1], [18, 27, 'z', 3]]) bumper(x, z, { axis, range: 7, speed: .7, phase, float:true, clearance:.65 });
       for (const [x, z] of [[0, 14], [0, 40]]) bumper(x, z, { axis: 'x', range: 10, speed: -.9, y: 1.5, phase: 1 });
     }
     if (info.id === 'triple-drop') {
@@ -116,7 +117,7 @@ export function createCourse(mapId, rule = 'race') {
         const ring = Math.max(Math.abs(row - 3), Math.abs(col - 3));
         if (ring > 1) p((col - 3) * 4.8, 29.6 + (row - 3) * 4.8, 4.8, 4.8, 0, ring === 3 ? { type: 'sink', sinkAt: 40 + (row + col) % 3 * 3 } : {});
       }
-      vortex(0, 29.6, 38, 65); spin(0, 29.6, 42, .7, .25);
+      vortex(0, 29.6, 38, 85); spin(0, 29.6, 42, .7, .25);
     }
     if (info.id === 'punch-arena') {
       for (let row = 0; row < 6; row++) for (let col = 0; col < 6; col++) {
@@ -142,8 +143,8 @@ export function createCourse(mapId, rule = 'race') {
         for(let i=1;i<c.path.length;i++) {
           const a=c.path[i-1],b=c.path[i],dx=b.x-a.x,dz=b.z-a.z,d=Math.hypot(dx,dz)-12;
           p((a.x+b.x)/2,(a.z+b.z)/2,10,d,2,{type:'seesaw',rotation:Math.atan2(dx,dz),run:d});
-          // 축 위는 높이가 변하지 않으므로 가로지르는 막대를 둡니다.
-          if(i%2===0) o('slider',(a.x+b.x)/2,(a.z+b.z)/2,dx?1:5,dx?5:1,2,{y:2,axis:dx?'z':'x',range:3,speed:1.3,phase:i});
+          // 진행 방향의 중심축을 따라 움직여 축 위 대기를 막습니다.
+          if(i%2===0) o('slider',(a.x+b.x)/2,(a.z+b.z)/2,dx?5:1,dx?1:5,2,{y:2,axis:dx?'x':'z',range:3,speed:1.3,phase:i});
         }
         for(const n of c.path) p(n.x,n.z,12,12,n.y);
         break;
@@ -154,15 +155,16 @@ export function createCourse(mapId, rule = 'race') {
         for(const [i,[x,z]] of [[-9,32],[9,32],[-9,52],[9,52]].entries())
           o('maze-wall',x,z,16,.9,3.6,{period:6,phase:i*1.5});
         for(const x of [-22,22]) o('wall',x,42,1,56,3);
+        for(const z of [32,52]) for(const x of [-19.75,19.75]) o('wall',x,z,4.5,2,3.6);
         bumper(0,42,{axis:'x',range:15,speed:.9}); bumper(0,62,{axis:'x',range:15,speed:-1.1,phase:1});
         break;
       case 'snow-jumps':
-        c.spawnY=14; c.platforms[0].y=14; c.sliding=true; c.floorY=-5;
+        c.spawnY=14; Object.assign(c.platforms[0],{y:14.04,type:'ice',rise:-.2,run:16}); c.sliding=true; c.floorY=-5;
         p(0,27,18,26,9.5,{type:'ice',rise:-9,run:26});
         p(0,45,18,10,5,{type:'ice'});
-        c.path=[[0,6,14],[0,45,5],[0,75,3.8],[5,105,2.6],[-5,135,1.4],[4,165,.2],[0,195,-1]].map(point);
-        for(const n of c.path.slice(2,-1)) p(n.x,n.z,10,10,n.y,{type:'ice'});
-        p(0,195,18,18,-1,{type:'ice'});
+        c.path=[[0,6,14],[0,45,5],[0,66,3.8],[3,86,2.6],[1,104,1.4],[-2,120,.2],[-3,136,-1]].map(point);
+        for(const n of c.path.slice(2,-1)) p(n.x,n.z,14,12,n.y,{type:'ice'});
+        p(-3,136,18,18,-1,{type:'ice'});
         break;
       case 'jelly-garden':
         route([[0,6],[0,28],[24,28],[24,52],[-4,52],[-4,76],[18,76]], 12);
@@ -172,13 +174,14 @@ export function createCourse(mapId, rule = 'race') {
         break;
       case 'spin-city':
         route([[0,6],[0,32],[26,32],[26,6],[26,-18],[0,-18]], 12);
-        spin(0,25,11); turntable(14,32,14,-1.15); turntable(26,15,14,1); spin(26,-10,11,-1.2); spin(8,-18,11,.7);
+        spin(0,25,11); Object.assign(turntable(14,32,14,-2.3),{fling:9}); Object.assign(turntable(26,15,14,2),{fling:9}); spin(26,-10,11,-1.2); spin(8,-18,11,.7);
         break;
       case 'cloud-hop': {
         c.path = [[0,6],[0,22],[12,34],[26,34],[26,52],[10,64],[-5,64]].map(point);
         for (let i=1;i<c.path.length;i++) { const n=c.path[i]; p(n.x,n.z,12,12); }
         p(18.5,43,7,7,0,{type:'moving',axis:'x',range:7.5,speed:1.2,phase:0});
         trampoline(26,56,7,5,{pushX:-6,pushZ:6});
+        trampoline(0,25,4,3,{force:12,pushX:13,pushZ:9}); trampoline(26,37,4,3,{force:12,pushZ:20});
         break;
       }
       case 'ice-express':
@@ -242,7 +245,7 @@ export function createCourse(mapId, rule = 'race') {
         break;
       case 'rocket-road':
         route([[0,6],[0,46],[34,46],[34,96],[0,96],[0,126]],11);
-        booster(0,18,0,1); booster(0,30,0,1); booster(10,46,1,0); booster(34,52,0,1); booster(0,104,0,1);
+        for(const [x,z,dx,dz] of [[0,18,0,1],[5,46,1,0],[34,60,0,1],[29,96,-1,0],[0,100,0,1]]) Object.assign(booster(x,z,dx,dz),{power:46,lift:9});
         // 직선 양쪽 받침에서 번갈아 튀어나오는 펀치 벽입니다.
         for(const [i,z] of [58,66,74,82,90].entries()) puncher(i%2?27:41,z,'x',i%2?1:-1,7,i*.45,0,2.3);
         o('crusher',17,96,8,4,2.5,{period:4.2,phase:1,range:5}); o('crusher',0,38,8,4,2.5,{period:3.6,phase:2,range:5});
