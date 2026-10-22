@@ -295,7 +295,13 @@ Render 배포 후 공개 파일이 로컬 구현과 일치하는 것을 확인�
 - AWS 배포 기준은 `24d7d9b`입니다. 2026-10-19에 게임 컨테이너만 교체했습니다. 로컬·패키지·서버 테스트가 각각 86개 통과했습니다. 패키지 sha256은 `d8ded12acff08e25e06ad849247ba5d168190dbeb13a7286b0a57cd508871a33`이고, 배포 스크립트 해시는 로컬과 같았습니다.
 - 첫 시도는 접속 8개가 확인되어 스크립트가 교체 전에 멈췄습니다(`EXIT=8`). 사용자 요청으로 첫 접속자 확인만 뺀 사본으로 다시 실행했으며, 교체 직전 두 번째 확인에서는 접속이 0개였습니다. 교체 후 healthy·캠프 젤리/페인트 HTTP 200·`ACCESS_RESTORED`와 22번 포트 원복(`lightsail-connect`만)을 확인했습니다. 공개 서버의 index·app·courses·scene·world 5개 파일이 커밋과 일치하고, 같은 서버의 도서·AI 사이트도 200입니다. 백업은 `/opt/camp-jelly/backups/pre-24d7d9b-20261019T044652.tar.gz`, 복구 이미지는 `camp-jelly-game:rollback-20261019T044652`입니다.
 
-## AWS 운영 (최신 게임 배포: 2026-10-19)
+### 맵·조작 개선 11개 (2026-10-22)
+
+- 눈꽃 점프대·회전 미로·시소 숲길·로켓 고속도로·구름 징검다리·빙글빙글 시티·통나무 호수·용암 피라미드·3층 붕괴 탑·소용돌이 만의 기믹과 슬라이딩 밀치기를 개선했습니다. 맵별 내용은 위 맵 표에 있습니다.
+- AWS 배포 기준은 `fa03efe5034902a8cc7ba79f8ed0d880326c2189`입니다. 2026-10-22에 게임 컨테이너만 교체했습니다. 로컬·패키지·서버 테스트가 각각 97개 통과했습니다. 패키지 sha256은 `b3ff2c76c915f09356cc01c00e9d61cee8774dd7d8f72c07c1583fe557b95f4e`이고, CloudShell에 올린 패키지와 배포 스크립트의 해시가 로컬과 같았습니다.
+- 교체 전·직전 접속 0개를 확인했습니다. 교체 후 `/healthz`는 `{"ok":true,"rooms":0,"connections":0}`, 캠프 젤리·캠프 페인트·도서·AI 사이트 모두 HTTP 200, `ACCESS_RESTORED`와 22번 포트 원복(`lightsail-connect`만)을 확인했습니다. 공개 서버의 index·app·scene·world·courses·network 6개 파일이 커밋과 일치하고, 운영 첫 화면의 3D 캐릭터를 확인했습니다. 백업은 `/opt/camp-jelly/backups/pre-fa03efe-20261022T045450.tar.gz`, 복구 이미지는 `camp-jelly-game:rollback-20261022T045450`입니다.
+
+## AWS 운영 (최신 게임 배포: 2026-10-22)
 
 접속 주소: https://camp-jelly.43-200-53-244.nip.io/
 
@@ -308,7 +314,7 @@ Render 배포 후 공개 파일이 로컬 구현과 일치하는 것을 확인�
 
 `/opt/camp-jelly`에서 `compose.yaml`로 게임 서버 1개와 Caddy HTTPS 프록시를 실행합니다. 게임 포트 3000은 외부에 게시하지 않고 80/443만 전체 공개합니다. SSH는 Lightsail 브라우저 접속으로 제한했으며 배포에 사용한 CloudShell IP 허용은 제거했습니다. SSH 암호 접속은 비활성화되어 있습니다. 임시 SSH 인증서는 CloudShell에서만 사용하고 작업 종료 시 삭제합니다. 서버에는 GitHub 토큰이나 AWS 영구 액세스 키를 저장하지 않았습니다.
 
-Caddy 인증서는 Docker 볼륨에 보존되며 서비스는 재부팅 후 자동 시작합니다. 로그 보관 크기를 제한합니다. 48kbps 음원·바이너리 통신·정적 파일 압축과 캐시를 유지합니다. 게임 소스 배포 기준은 `24d7d9b`(2026-10-19, 새 맵 12개 난이도 강화)입니다. 이전 기준은 `7cbfbcd`(2026-10-14), `f6127bc`(2026-10-07)입니다. [deploy/DEPLOY_AWS.md](deploy/DEPLOY_AWS.md)의 `deploy/pack.sh`·`deploy/cloudshell-deploy.sh`로 배포했으며, 서버 안에서 새 이미지의 `npm test` 통과를 확인한 뒤 게임 컨테이너만 교체했습니다. 기존 `.env`와 공유 프록시의 `/opt/camp-paint/deploy/Caddyfile.gateway`, `/opt/camp-paint/deploy/proxy.override.yaml`은 수정하지 않았으며 Caddy를 재시작하거나 reload하지 않았습니다. 최신 배포 전 소스는 `backups/pre-24d7d9b-20261019T044652.tar.gz`, 실행 이미지는 `camp-jelly-game:rollback-20261019T044652`로 백업했습니다.
+Caddy 인증서는 Docker 볼륨에 보존되며 서비스는 재부팅 후 자동 시작합니다. 로그 보관 크기를 제한합니다. 48kbps 음원·바이너리 통신·정적 파일 압축과 캐시를 유지합니다. 게임 소스 배포 기준은 `fa03efe`(2026-10-22, 맵·조작 개선 11개)입니다. 이전 기준은 `24d7d9b`(2026-10-19), `7cbfbcd`(2026-10-14), `f6127bc`(2026-10-07)입니다. [deploy/DEPLOY_AWS.md](deploy/DEPLOY_AWS.md)의 `deploy/pack.sh`·`deploy/cloudshell-deploy.sh`로 배포했으며, 서버 안에서 새 이미지의 `npm test` 통과를 확인한 뒤 게임 컨테이너만 교체했습니다. 기존 `.env`와 공유 프록시의 `/opt/camp-paint/deploy/Caddyfile.gateway`, `/opt/camp-paint/deploy/proxy.override.yaml`은 수정하지 않았으며 Caddy를 재시작하거나 reload하지 않았습니다. 최신 배포 전 소스는 `backups/pre-fa03efe-20261022T045450.tar.gz`, 실행 이미지는 `camp-jelly-game:rollback-20261022T045450`로 백업했습니다.
 
 2026-09-29 배포에서는 캠프 젤리의 HSTS를 추가했으며 다른 사이트 경로를 유지했습니다. 당시 백업 이름은 `backups/pre-b68c817.tar.gz`, `backups/Caddyfile.gateway-pre-b68c817`, `camp-jelly-game:pre-b68c817`입니다.
 
