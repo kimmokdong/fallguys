@@ -8,6 +8,8 @@ services:
       PORT: 3000
       # Caddy가 넣어 주는 X-Forwarded-For로 실제 접속 IP별 한도를 적용합니다.
       TRUST_PROXY: "1"
+      # 같은 서버의 캠프 페인트 접속자도 홈 화면 '여유' 계산에 넣습니다(공유 프록시 네트워크의 camp-paint-web 경유).
+      PEER_STATUS_URL: http://camp-paint-web/health
     # 게임 서버는 디스크에 쓰지 않습니다. 권한과 자원을 최소로 제한합니다.
     read_only: true
     cap_drop:

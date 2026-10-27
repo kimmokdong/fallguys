@@ -10,6 +10,7 @@
 // 봇은 초당 15회 이동 입력을 보내며 무작위로 방향을 바꿔 출발 지점 근처에 몰립니다(가장 무거운 경우).
 // 상태 패킷은 방마다 probe 소켓 몇 개만 해석하고 나머지 소켓은 받기만 해서 봇이 병목이 되지 않게 합니다.
 import http from 'node:http';
+import https from 'node:https';
 import { spawn } from 'node:child_process';
 import { writeFile } from 'node:fs/promises';
 import { monitorEventLoopDelay, performance } from 'node:perf_hooks';
@@ -35,6 +36,8 @@ if (!['127.0.0.1', 'localhost', '::1', '[::1]'].includes(BASE.hostname) && optio
 // 경기는 60초입니다. 한 경기 안에서 측정을 끝내야 단계별 부하가 일정합니다.
 if (WARMUP_S + MEASURE_S > 55) { console.error('warmup + measure는 55초 이하여야 합니다(경기 60초).'); process.exit(2); }
 
+// --insecure: 로컬 Caddy(tls internal)처럼 자체 서명 인증서를 쓰는 테스트 프록시를 거칠 때만 씁니다.
+const TLS = options.insecure === 'true' ? { rejectUnauthorized: false } : {};
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
 const wsUrl = `${BASE.protocol === 'https:' ? 'wss:' : 'ws:'}//${BASE.host}/?v=2`;
 const percentile = (sorted, p) => (sorted.length ? sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * p))] : NaN);
@@ -49,7 +52,7 @@ class Bot {
   }
   connect() {
     return new Promise((resolve, reject) => {
-      const socket = new WebSocket(wsUrl, { perMessageDeflate: false });
+      const socket = new WebSocket(wsUrl, { ...TLS, perMessageDeflate: false });
       this.socket = socket;
       socket.once('open', resolve);
       socket.once('error', reject);
@@ -144,7 +147,7 @@ class Room {
 function healthz() {
   return new Promise((resolve, reject) => {
     const started = performance.now();
-    const req = http.get(new URL('/healthz', BASE), { agent: false, timeout: 5000 }, (res) => {
+    const req = (BASE.protocol === 'https:' ? https : http).get(new URL('/healthz', BASE), { ...TLS, agent: false, timeout: 5000 }, (res) => {
       let body = '';
       res.on('data', (chunk) => { body += chunk; });
       res.on('end', () => resolve({ ms: performance.now() - started, body: JSON.parse(body) }));
