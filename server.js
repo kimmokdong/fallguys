@@ -41,8 +41,11 @@ const ANNOUNCE_DELAY_MS = 250;
 // tools/loadtest*.js 실측(Lightsail 상당 CPU, Caddy 포함)에서 젤리+페인트×2가 약 270명일 때 지연이 시작돼 그 70%로 잡았습니다.
 // peerStatusUrl을 주면 이웃 게임(캠프 페인트) /health의 connections에 peerWeight를 곱해 여유 계산에서 뺍니다.
 // 페인트 1명은 물감 도색·압축 전송 때문에 젤리 약 2명분의 CPU를 씁니다.
-export function createGameServer({ reconnectGraceMs = 20_000, countdownMs = 6_000, trustProxy = false, allowedOrigins = [], limits = {}, capacity = 190, peerStatusUrl = '', peerWeight = 2, log = console } = {}) {
+// peerCapacity는 페인트 서버 프로세스 하나가 버티는 접속 수(실측 한계 약 90의 70%)입니다.
+// 페인트 홈 화면은 이 서버가 계산한 peerAvailable(페인트 인원 기준 여유)을 그대로 보여 줍니다.
+export function createGameServer({ reconnectGraceMs = 20_000, countdownMs = 6_000, trustProxy = false, allowedOrigins = [], limits = {}, capacity = 190, peerStatusUrl = '', peerWeight = 2, peerCapacity = 63, log = console } = {}) {
   if (!Number.isInteger(capacity) || capacity <= 0) throw new RangeError('수용 인원은 양의 정수여야 합니다.');
+  if (!Number.isInteger(peerCapacity) || peerCapacity <= 0) throw new RangeError('이웃 게임 수용 인원은 양의 정수여야 합니다.');
   if (typeof peerWeight !== 'number' || !Number.isFinite(peerWeight) || peerWeight < 0) throw new RangeError('이웃 게임 가중치는 0 이상의 수여야 합니다.');
   const limit = { ...DEFAULT_LIMITS, ...limits };
   const origins = new Set(allowedOrigins.map((origin) => String(origin).trim().replace(/\/+$/, '').toLowerCase()).filter(Boolean));
@@ -77,9 +80,13 @@ export function createGameServer({ reconnectGraceMs = 20_000, countdownMs = 6_00
     try {
       const url = new URL(req.url, 'http://localhost');
       if (url.pathname === '/healthz') {
-        const used = wss.clients.size + peerWeight * await peerConnections(Date.now());
+        const peers = await peerConnections(Date.now());
+        const left = capacity - wss.clients.size - peerWeight * peers;
+        const status = { ok: true, rooms: rooms.size, connections: wss.clients.size, capacity, available: Math.max(0, Math.floor(left)) };
+        // 페인트 한 명은 공유 여유를 peerWeight만큼 쓰고, 페인트 서버 자체 한도도 넘지 않아야 합니다.
+        if (peerStatusUrl) status.peerAvailable = Math.max(0, Math.floor(Math.min(peerWeight ? left / peerWeight : Infinity, peerCapacity - peers)));
         res.writeHead(200, { ...SECURITY_HEADERS, 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
-        res.end(req.method === 'HEAD' ? undefined : JSON.stringify({ ok: true, rooms: rooms.size, connections: wss.clients.size, capacity, available: Math.max(0, Math.floor(capacity - used)) }));
+        res.end(req.method === 'HEAD' ? undefined : JSON.stringify(status));
         return;
       }
       const pathname = decodeURIComponent(url.pathname);
@@ -668,6 +675,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     limits,
     capacity: number(process.env.SERVER_CAPACITY),
     peerStatusUrl: process.env.PEER_STATUS_URL,
+    peerCapacity: number(process.env.PEER_CAPACITY),
     peerWeight: Number(process.env.PEER_WEIGHT) >= 0 && process.env.PEER_WEIGHT.trim() ? Number(process.env.PEER_WEIGHT) : undefined,
   });
   const port = Number(process.env.PORT || 3000);

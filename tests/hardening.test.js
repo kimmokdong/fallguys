@@ -202,11 +202,14 @@ test('같은 서버 이웃 게임의 접속자는 가중치만큼 여유 인원�
   t.after(() => new Promise((done) => neighbor.close(done)));
   const peerStatusUrl = `http://127.0.0.1:${neighbor.address().port}/health`;
   for (const peerWeight of [-1, NaN, Infinity, '2']) assert.throws(() => createGameServer({ peerWeight }), RangeError);
+  for (const peerCapacity of [0, 1.5, NaN]) assert.throws(() => createGameServer({ peerCapacity }), RangeError);
   const app = await setup(t, { capacity: 40, peerStatusUrl });
   await client(app.url);
-  assert.deepEqual(await (await fetch(app.url + '/healthz')).json(), { ok: true, rooms: 0, connections: 1, capacity: 40, available: 29 }, '기본 가중치 2: 40 - 1 - 5×2');
+  assert.deepEqual(await (await fetch(app.url + '/healthz')).json(), { ok: true, rooms: 0, connections: 1, capacity: 40, available: 29, peerAvailable: 14 }, '기본 가중치 2: 40 - 1 - 5×2, 페인트는 29÷2');
   const light = await setup(t, { capacity: 40, peerStatusUrl, peerWeight: 1.5 });
   assert.equal((await (await fetch(light.url + '/healthz')).json()).available, 32, '소수 가중치는 내림: 40 - 7.5');
+  const busyPeer = await setup(t, { capacity: 190, peerStatusUrl, peerCapacity: 8 });
+  assert.deepEqual(await (await fetch(busyPeer.url + '/healthz')).json(), { ok: true, rooms: 0, connections: 0, capacity: 190, available: 180, peerAvailable: 3 }, '페인트 서버 자체 한도 8 - 5');
   const offline = await setup(t, { capacity: 10, peerStatusUrl: 'http://127.0.0.1:1/health' });
   assert.equal((await (await fetch(offline.url + '/healthz')).json()).available, 10);
 });
