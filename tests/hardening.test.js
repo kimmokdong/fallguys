@@ -1,10 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import net from 'node:net';
+import http from 'node:http';
 import { once } from 'node:events';
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { COLORS } from '../public/catalog.js';
+import { createGameServer } from '../server.js';
 import { setup, client, attempt, roomWhere, ofType, barrier } from './helpers.js';
 
 const quiet = () => { const errors = []; return { errors, log: { error: (...args) => errors.push(args) } }; };
@@ -176,16 +178,41 @@ test('보안 헤더와 import map 해시·방문 집계만 허용하는 CSP, 상
   assert.equal(missing.status, 404); assert.equal(missing.headers.get('x-content-type-options'), 'nosniff');
   const health = await fetch(app.url + '/healthz');
   assert.equal(health.status, 200); assert.equal(health.headers.get('cache-control'), 'no-store');
-  assert.deepEqual(await health.json(), { ok: true, rooms: 0, connections: 0 });
+  assert.deepEqual(await health.json(), { ok: true, rooms: 0, connections: 0, capacity: 90, available: 90 });
 });
 
+
+test('수용 인원 옵션을 반영하고 여유 인원은 0명 아래로 내려가지 않는다', async (t) => {
+  for (const capacity of [0, -1, 1.5, NaN, Infinity, '20']) {
+    assert.throws(() => createGameServer({ capacity }), RangeError);
+  }
+  const app = await setup(t, { capacity: 1 });
+  const health = async () => (await fetch(app.url + '/healthz')).json();
+  assert.deepEqual(await health(), { ok: true, rooms: 0, connections: 0, capacity: 1, available: 1 });
+  await client(app.url);
+  assert.deepEqual(await health(), { ok: true, rooms: 0, connections: 1, capacity: 1, available: 0 });
+  await client(app.url);
+  assert.deepEqual(await health(), { ok: true, rooms: 0, connections: 2, capacity: 1, available: 0 });
+});
+
+test('같은 서버 이웃 게임의 접속자도 여유 인원에서 빼고, 못 읽으면 0으로 본다', async (t) => {
+  const neighbor = http.createServer((req, res) => { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ status: 'ok', connections: 5 })); });
+  neighbor.listen(0, '127.0.0.1');
+  await once(neighbor, 'listening');
+  t.after(() => new Promise((done) => neighbor.close(done)));
+  const app = await setup(t, { capacity: 40, peerStatusUrl: `http://127.0.0.1:${neighbor.address().port}/health` });
+  await client(app.url);
+  assert.deepEqual(await (await fetch(app.url + '/healthz')).json(), { ok: true, rooms: 0, connections: 1, capacity: 40, available: 34 });
+  const offline = await setup(t, { capacity: 10, peerStatusUrl: 'http://127.0.0.1:1/health' });
+  assert.equal((await (await fetch(offline.url + '/healthz')).json()).available, 10);
+});
 
 test('상태 조회의 연결 수는 방 입장 전 연결도 포함하고 종료 뒤 감소한다', async (t) => {
   const app = await setup(t), health = async () => (await fetch(app.url + '/healthz')).json();
   const member = await client(app.url);
-  assert.deepEqual(await health(), { ok: true, rooms: 0, connections: 1 });
+  assert.deepEqual(await health(), { ok: true, rooms: 0, connections: 1, capacity: 90, available: 89 });
   member.send({ type: 'create', name: '접속 확인' }); await member.wait(ofType('welcome'));
-  assert.deepEqual(await health(), { ok: true, rooms: 1, connections: 1 });
+  assert.deepEqual(await health(), { ok: true, rooms: 1, connections: 1, capacity: 90, available: 89 });
   const closed = once([...app.wss.clients][0], 'close');
   member.socket.close(); await closed;
   assert.equal((await health()).connections, 0);

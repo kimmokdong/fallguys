@@ -314,9 +314,26 @@ $('#color-picker').addEventListener('click', (event) => { const button = event.t
 $('#character-grid').addEventListener('click', (event) => { const button = event.target.closest('[data-character]'); if (button && !button.disabled) { profile.character = button.dataset.character; renderCharacters(); updateProfile(); if (room) send({ type: 'customize', character: profile.character }); } });
 $('#character-done').addEventListener('click', () => $('#character-dialog').close());
 
+async function updateServerCapacity() {
+  if (document.body.dataset.screen !== 'home') return;
+  const indicator = $('#server-capacity');
+  try {
+    const response = await fetch('/healthz', { cache: 'no-store' });
+    if (!response.ok) throw new Error('서버 상태 조회 실패');
+    const { available } = await response.json();
+    if (!Number.isInteger(available) || available < 0) throw new Error('잘못된 여유 인원');
+    indicator.innerHTML = available === 0 ? '지금은 자리가 없어요' : `지금 여유 약 <b>${available}</b>명`;
+    indicator.classList.toggle('capacity-low', available < 15);
+    indicator.hidden = false;
+  } catch {
+    indicator.hidden = true;
+  }
+}
+
 function switchScreen(mode) {
   if (mode !== 'game') sound.setMusicPlaying(false);
   document.body.dataset.screen = mode;
+  if (mode === 'home') updateServerCapacity();
   $('#nav-home').hidden = mode !== 'home';
   $('#nav-maps').textContent = mode === 'room' ? '경기 정보' : '맵 보기';
   if (mode === 'game') document.querySelectorAll('dialog[open]').forEach(dialog => dialog.close());
@@ -663,6 +680,8 @@ for (const action of ['jump', 'dive']) {
 }
 
 updateProfile();
+updateServerCapacity();
+setInterval(updateServerCapacity, 30_000);
 const initialCode = new URLSearchParams(location.search).get('room')?.toUpperCase();
 if (initialCode && savedSession?.code !== initialCode) showEntry('join', initialCode);
 connect().catch((error) => toast(error.message));

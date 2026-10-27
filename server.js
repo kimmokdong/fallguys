@@ -37,13 +37,30 @@ const COALESCED = new Set(['choosing', 'ready', 'customize', 'settings', 'view']
 const UNMETERED = new Set(['leave', 'kick', 'start', 'next', 'lobby']);
 const ANNOUNCE_DELAY_MS = 250;
 
-export function createGameServer({ reconnectGraceMs = 20_000, countdownMs = 6_000, trustProxy = false, allowedOrigins = [], limits = {}, log = console } = {}) {
+// capacity는 2 vCPU Lightsail을 캠프 페인트와 나눠 쓰는 기준의 보수적 수용 인원(공유분)입니다.
+// peerStatusUrl을 주면 이웃 게임 /health의 connections도 여유 계산에서 뺍니다.
+export function createGameServer({ reconnectGraceMs = 20_000, countdownMs = 6_000, trustProxy = false, allowedOrigins = [], limits = {}, capacity = 90, peerStatusUrl = '', log = console } = {}) {
+  if (!Number.isInteger(capacity) || capacity <= 0) throw new RangeError('수용 인원은 양의 정수여야 합니다.');
   const limit = { ...DEFAULT_LIMITS, ...limits };
   const origins = new Set(allowedOrigins.map((origin) => String(origin).trim().replace(/\/+$/, '').toLowerCase()).filter(Boolean));
   // ponytail: 방은 단일 Node 프로세스의 메모리에 보관. 다중 서버 운영 때 공유 저장소를 추가한다.
   const rooms = new Map();
   const connectionsByIp = new Map();
   const joinFailures = new Map();
+
+  // 이웃 게임 접속자 수는 10초마다 한 번만 읽어 둡니다. 못 읽으면 0으로 봅니다.
+  // shortcut: 이웃 조회 실패 시 여유가 실제보다 후하게 나올 수 있음, 운영에서 실패가 잦으면 마지막 값 유지로 바꾼다.
+  const peer = { count: 0, at: -Infinity };
+  async function peerConnections(now) {
+    if (!peerStatusUrl || now - peer.at < 10_000) return peer.count;
+    peer.at = now;
+    try {
+      const response = await fetch(peerStatusUrl, { signal: AbortSignal.timeout(1_500) });
+      const body = await response.json();
+      peer.count = Number.isFinite(body?.connections) ? body.connections : 0;
+    } catch { peer.count = 0; }
+    return peer.count;
+  }
 
   function reportError(where, cause, room) {
     try { log.error(`[camp-jelly] ${where} 처리 오류${room ? ` (방 ${room.code})` : ''}`, cause); } catch { /* 기록 실패가 게임을 멈추지 않게 합니다. */ }
@@ -57,8 +74,9 @@ export function createGameServer({ reconnectGraceMs = 20_000, countdownMs = 6_00
     try {
       const url = new URL(req.url, 'http://localhost');
       if (url.pathname === '/healthz') {
+        const used = wss.clients.size + await peerConnections(Date.now());
         res.writeHead(200, { ...SECURITY_HEADERS, 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
-        res.end(req.method === 'HEAD' ? undefined : JSON.stringify({ ok: true, rooms: rooms.size, connections: wss.clients.size }));
+        res.end(req.method === 'HEAD' ? undefined : JSON.stringify({ ok: true, rooms: rooms.size, connections: wss.clients.size, capacity, available: Math.max(0, capacity - used) }));
         return;
       }
       const pathname = decodeURIComponent(url.pathname);
@@ -645,6 +663,8 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     trustProxy: ['1', 'true'].includes(String(process.env.TRUST_PROXY).toLowerCase()),
     allowedOrigins: String(process.env.ALLOWED_ORIGINS || '').split(',').filter(Boolean),
     limits,
+    capacity: number(process.env.SERVER_CAPACITY),
+    peerStatusUrl: process.env.PEER_STATUS_URL,
   });
   const port = Number(process.env.PORT || 3000);
   const host = process.env.HOST || '0.0.0.0';
