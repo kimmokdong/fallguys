@@ -60,9 +60,18 @@ check_connections
 mkdir "$STAGE"
 tar -xzf "$PKG" -C "$STAGE"
 # 공유 프록시가 쓰는 파일이 바뀌는 배포는 다른 사이트에도 영향을 주므로 자동으로 진행하지 않습니다.
-for f in Caddyfile compose.yaml; do
-  if ! cmp -s "$STAGE/$f" "$LIVE/$f"; then echo "$f가 운영과 달라 중단합니다. 프록시 설정 변경은 README의 수동 절차로 처리합니다." >&2; exit 3; fi
-done
+# compose.yaml은 game 서비스만 바뀐 경우(환경 변수 등)에 한해 계속합니다. 같은 폴더·프로젝트 기준으로 해석해 game을 뺀 나머지가 같아야 합니다.
+without_game() {
+  docker compose --project-directory "$LIVE" -p camp-jelly --env-file "$LIVE/.env" -f "$1" config --format json \
+    | python3 -c 'import json,sys; d=json.load(sys.stdin); d.get("services",{}).pop("game",None); print(json.dumps(d,sort_keys=True))'
+}
+if ! cmp -s "$STAGE/Caddyfile" "$LIVE/Caddyfile"; then echo "Caddyfile이 운영과 달라 중단합니다. 프록시 설정 변경은 README의 수동 절차로 처리합니다." >&2; exit 3; fi
+if ! cmp -s "$STAGE/compose.yaml" "$LIVE/compose.yaml"; then
+  if [[ "$(without_game "$STAGE/compose.yaml" || echo NEW_FAILED)" != "$(without_game "$LIVE/compose.yaml" || echo LIVE_FAILED)" ]]; then
+    echo "compose.yaml의 game 밖 설정이 운영과 달라 중단합니다. 프록시 설정 변경은 README의 수동 절차로 처리합니다." >&2; exit 3
+  fi
+  echo 'COMPOSE_GAME_ONLY: compose.yaml은 game 서비스만 바뀌어 계속합니다.'
+fi
 IMAGE=$(docker inspect --format '{{.Config.Image}}' "$(docker compose ps -q game)")
 docker tag "$IMAGE" "camp-jelly-game:rollback-$STAMP"
 mkdir -p backups

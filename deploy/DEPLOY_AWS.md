@@ -39,7 +39,7 @@ bash cloudshell-deploy.sh <커밋> <패키지 sha256> 2>&1 | tee deploy-<커밋>
 
 1. 현재 포트 규칙을 저장하고, CloudShell IP에만 22번 포트를 엽니다. 기본 키는 CloudShell 임시 폴더에만 둡니다.
 2. game 컨테이너의 3000번 포트 연결 수가 0인지 확인합니다. 접속자가 있으면 멈춥니다(EXIT=8).
-3. 패키지의 `Caddyfile`·`compose.yaml`이 운영과 다르면 멈춥니다(EXIT=3). 공유 프록시에 닿는 변경은 README의 수동 절차로 처리합니다.
+3. 패키지의 `Caddyfile`이 운영과 다르면 멈춥니다(EXIT=3). `compose.yaml`은 `game` 서비스만 바뀐 경우(환경 변수 등)에만 `COMPOSE_GAME_ONLY`를 출력하고 계속합니다. 공유 프록시 등 `game` 밖 설정이 바뀌었거나 파일을 해석하지 못하면 멈춥니다(EXIT=3). 공유 프록시에 닿는 변경은 README의 수동 절차로 처리합니다.
 4. 현재 소스를 `backups/pre-<커밋>-<시각>.tar.gz`로, 현재 이미지를 `camp-jelly-game:rollback-<시각>`으로 백업합니다.
 5. 소스를 교체합니다. `public`·`tests`는 통째로 바꾸고 `.env`·`backups`는 유지합니다.
 6. 새 이미지를 빌드하고 서버 안에서 `npm test`를 돌립니다. 접속자 0명을 다시 확인한 뒤 game 컨테이너만 교체합니다(`--wait`로 healthy 대기).
