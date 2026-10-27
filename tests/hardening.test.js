@@ -178,48 +178,63 @@ test('보안 헤더와 import map 해시·방문 집계만 허용하는 CSP, 상
   assert.equal(missing.status, 404); assert.equal(missing.headers.get('x-content-type-options'), 'nosniff');
   const health = await fetch(app.url + '/healthz');
   assert.equal(health.status, 200); assert.equal(health.headers.get('cache-control'), 'no-store');
-  assert.deepEqual(await health.json(), { ok: true, rooms: 0, connections: 0, capacity: 190, available: 190 });
+  assert.deepEqual(await health.json(), { ok: true, rooms: 0, connections: 0, capacity: 190, limit: 240, available: 240, state: 'free' });
 });
 
 
-test('수용 인원 옵션을 반영하고 여유 인원은 0명 아래로 내려가지 않는다', async (t) => {
-  for (const capacity of [0, -1, 1.5, NaN, Infinity, '20']) {
-    assert.throws(() => createGameServer({ capacity }), RangeError);
-  }
-  const app = await setup(t, { capacity: 1 });
-  const health = async () => (await fetch(app.url + '/healthz')).json();
-  assert.deepEqual(await health(), { ok: true, rooms: 0, connections: 0, capacity: 1, available: 1 });
-  await client(app.url);
-  assert.deepEqual(await health(), { ok: true, rooms: 0, connections: 1, capacity: 1, available: 0 });
-  await client(app.url);
-  assert.deepEqual(await health(), { ok: true, rooms: 0, connections: 2, capacity: 1, available: 0 });
+test('대기실 방은 정원만큼 예약하고, 허가선을 넘는 새 방은 막되 열린 방 입장은 받는다', async (t) => {
+  for (const capacity of [0, -1, 1.5, NaN, Infinity, '20']) assert.throws(() => createGameServer({ capacity }), RangeError);
+  assert.throws(() => createGameServer({ capacity: 50, serverLimit: 40 }), RangeError, '허가선은 여유선보다 작을 수 없다');
+  const app = await setup(t, { capacity: 30, serverLimit: 60 });
+  const health = async () => { const { capacity, limit, available, state } = await (await fetch(app.url + '/healthz')).json(); return { capacity, limit, available, state }; };
+  const visitor = await client(app.url);
+  assert.deepEqual(await health(), { capacity: 30, limit: 60, available: 60, state: 'free' }, '방에 들어가지 않은 접속은 부하로 세지 않는다');
+  const first = await client(app.url);
+  first.send({ type: 'create', name: '첫 반' }); const { code } = await first.wait(ofType('welcome'));
+  assert.deepEqual(await health(), { capacity: 30, limit: 60, available: 30, state: 'busy' }, '대기실 방 하나 = 30명 예약, 한 반 더 열면 여유선 30을 넘는다');
+  const second = await client(app.url);
+  second.send({ type: 'create', name: '둘째 반' }); await second.wait(ofType('welcome'));
+  assert.deepEqual(await health(), { capacity: 30, limit: 60, available: 0, state: 'full' });
+  const third = await client(app.url);
+  third.send({ type: 'create', name: '셋째 반' });
+  assert.equal((await third.wait(ofType('error'))).code, 'SERVER_FULL');
+  visitor.send({ type: 'join', code, name: '늦은 친구' });
+  assert.equal((await visitor.wait(ofType('welcome'))).code, code, '열린 방 입장은 가득이어도 받는다');
+  assert.equal((await health()).available, 0, '예약 안에서 들어온 인원은 부하를 늘리지 않는다');
 });
 
-test('같은 서버 이웃 게임의 접속자는 가중치만큼 여유 인원에서 빼고, 못 읽으면 0으로 본다', async (t) => {
-  const neighbor = http.createServer((req, res) => { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ status: 'ok', connections: 5 })); });
+test('이웃 게임 부하는 가중치만큼 더하고, 이웃 허가는 내부 요청만 받아 장부에 잠시 예약한다', async (t) => {
+  let body = { status: 'ok', connections: 5 };
+  const neighbor = http.createServer((req, res) => { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(body)); });
   neighbor.listen(0, '127.0.0.1');
   await once(neighbor, 'listening');
   t.after(() => new Promise((done) => neighbor.close(done)));
   const peerStatusUrl = `http://127.0.0.1:${neighbor.address().port}/health`;
   for (const peerWeight of [-1, NaN, Infinity, '2']) assert.throws(() => createGameServer({ peerWeight }), RangeError);
   for (const peerCapacity of [0, 1.5, NaN]) assert.throws(() => createGameServer({ peerCapacity }), RangeError);
-  const app = await setup(t, { capacity: 40, peerStatusUrl });
-  await client(app.url);
-  assert.deepEqual(await (await fetch(app.url + '/healthz')).json(), { ok: true, rooms: 0, connections: 1, capacity: 40, available: 29, peerAvailable: 14 }, '기본 가중치 2: 40 - 1 - 5×2, 페인트는 29÷2');
-  const light = await setup(t, { capacity: 40, peerStatusUrl, peerWeight: 1.5 });
-  assert.equal((await (await fetch(light.url + '/healthz')).json()).available, 32, '소수 가중치는 내림: 40 - 7.5');
-  const busyPeer = await setup(t, { capacity: 190, peerStatusUrl, peerCapacity: 8 });
-  assert.deepEqual(await (await fetch(busyPeer.url + '/healthz')).json(), { ok: true, rooms: 0, connections: 0, capacity: 190, available: 180, peerAvailable: 3 }, '페인트 서버 자체 한도 8 - 5');
-  const offline = await setup(t, { capacity: 10, peerStatusUrl: 'http://127.0.0.1:1/health' });
-  assert.equal((await (await fetch(offline.url + '/healthz')).json()).available, 10);
+  assert.throws(() => createGameServer({ peerCapacity: 50, peerLimit: 40 }), RangeError);
+  const app = await setup(t, { capacity: 100, serverLimit: 200, peerStatusUrl });
+  const health = async () => (await fetch(app.url + '/healthz')).json();
+  assert.deepEqual(await health(), { ok: true, rooms: 0, connections: 0, capacity: 100, limit: 200, available: 190, state: 'free', peerAvailable: 88, peerState: 'free' }, '200 - 5×2, 페인트는 min(190÷2, 93 - 5)');
+  const forwarded = await fetch(app.url + '/admit', { headers: { 'X-Forwarded-For': '203.0.113.9' } });
+  assert.equal(forwarded.status, 403, '공개 프록시를 거친 허가 요청은 거절');
+  assert.deepEqual(await (await fetch(app.url + '/admit')).json(), { ok: true, state: 'free' });
+  assert.deepEqual(await health(), { ok: true, rooms: 0, connections: 0, capacity: 100, limit: 200, available: 128, state: 'busy', peerAvailable: 57, peerState: 'busy' }, '허가한 페인트 방 31명 × 2를 장부에 예약');
+  assert.deepEqual(await (await fetch(app.url + '/admit')).json(), { ok: true, state: 'busy' });
+  assert.equal((await (await fetch(app.url + '/admit')).json()).ok, false, '페인트 자체 허가선 93 = 5 + 31×2를 넘는 셋째 방은 거절');
+  const offline = await setup(t, { capacity: 10, serverLimit: 20, peerStatusUrl: 'http://127.0.0.1:1/health' });
+  assert.equal((await (await fetch(offline.url + '/healthz')).json()).available, 20, '이웃을 못 읽으면 0명으로 본다');
+  body = { status: 'ok', connections: 3, load: 31 };
+  const loaded = await setup(t, { capacity: 100, serverLimit: 200, peerStatusUrl });
+  assert.equal((await (await fetch(loaded.url + '/healthz')).json()).available, 138, '이웃이 예약 포함 load를 주면 그 값을 쓴다');
 });
 
 test('상태 조회의 연결 수는 방 입장 전 연결도 포함하고 종료 뒤 감소한다', async (t) => {
   const app = await setup(t), health = async () => (await fetch(app.url + '/healthz')).json();
   const member = await client(app.url);
-  assert.deepEqual(await health(), { ok: true, rooms: 0, connections: 1, capacity: 190, available: 189 });
+  assert.deepEqual(await health(), { ok: true, rooms: 0, connections: 1, capacity: 190, limit: 240, available: 240, state: 'free' });
   member.send({ type: 'create', name: '접속 확인' }); await member.wait(ofType('welcome'));
-  assert.deepEqual(await health(), { ok: true, rooms: 1, connections: 1, capacity: 190, available: 189 });
+  assert.deepEqual(await health(), { ok: true, rooms: 1, connections: 1, capacity: 190, limit: 240, available: 210, state: 'free' });
   const closed = once([...app.wss.clients][0], 'close');
   member.socket.close(); await closed;
   assert.equal((await health()).connections, 0);

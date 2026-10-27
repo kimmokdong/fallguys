@@ -37,15 +37,22 @@ const COALESCED = new Set(['choosing', 'ready', 'customize', 'settings', 'view']
 const UNMETERED = new Set(['leave', 'kick', 'start', 'next', 'lobby']);
 const ANNOUNCE_DELAY_MS = 250;
 
-// capacity는 2 vCPU Lightsail을 캠프 페인트와 나눠 쓰는 서버 전체 수용 인원(젤리 인원 기준)입니다.
-// tools/loadtest*.js 실측(Lightsail 상당 CPU, Caddy 포함)에서 젤리+페인트×2가 약 270명일 때 지연이 시작돼 그 70%로 잡았습니다.
-// peerStatusUrl을 주면 이웃 게임(캠프 페인트) /health의 connections에 peerWeight를 곱해 여유 계산에서 뺍니다.
-// 페인트 1명은 물감 도색·압축 전송 때문에 젤리 약 2명분의 CPU를 씁니다.
-// peerCapacity는 페인트 서버 프로세스 하나가 버티는 접속 수(실측 한계 약 90의 70%)입니다.
-// 페인트 홈 화면은 이 서버가 계산한 peerAvailable(페인트 인원 기준 여유)을 그대로 보여 줍니다.
-export function createGameServer({ reconnectGraceMs = 20_000, countdownMs = 6_000, trustProxy = false, allowedOrigins = [], limits = {}, capacity = 190, peerStatusUrl = '', peerWeight = 2, peerCapacity = 63, log = console } = {}) {
-  if (!Number.isInteger(capacity) || capacity <= 0) throw new RangeError('수용 인원은 양의 정수여야 합니다.');
-  if (!Number.isInteger(peerCapacity) || peerCapacity <= 0) throw new RangeError('이웃 게임 수용 인원은 양의 정수여야 합니다.');
+// 서버 한 대(2 vCPU Lightsail)를 캠프 페인트와 나눠 쓰므로 두 게임의 방 만들기 허가를 이 서버 한 곳에서 판단합니다.
+// 부하는 젤리 인원 단위로 셉니다. 페인트 1명은 물감 도색·압축 전송 때문에 젤리 peerWeight(2)명분입니다.
+// tools/loadtest*.js 실측(Lightsail 상당 CPU, HTTPS 프록시 포함)에서 '젤리 + 페인트×2'가 240까지는 모든 조합이 정상이었고 270에서 지연이 시작됐습니다.
+//   capacity(190): 여기까지는 '여유'. 실측 한계 270의 70%입니다.
+//   serverLimit(240): 새 방을 열어도 이 값을 넘지 않을 때만 방 만들기를 허가합니다. 넘으면 '가득'.
+//   peerCapacity(63)·peerLimit(93): 페인트 서버 프로세스 자체의 여유·허가 기준(접속 수, 실측 90명 정상·120명 붕괴).
+// 대기실 방은 만든 뒤 10분 동안 정원만큼 예약된 것으로 보고, 이미 열린 방의 입장은 막지 않습니다.
+// peerStatusUrl은 페인트 /health 주소이며 load(예약 포함 접속 수)를 읽습니다. 페인트 홈 화면은 /healthz의 peer* 값을 그대로 보여 줍니다.
+const ROOM_RESERVE_MS = 10 * 60_000;
+const PEER_ROOM_SIZE = 31; // 페인트 방 하나: 플레이어 30명 + 관전 방장 1명
+const ADMIT_HOLD_MS = 20_000; // 페인트에 허가한 방이 페인트 /health에 잡힐 때까지 장부에 남겨 둡니다.
+export function createGameServer({ reconnectGraceMs = 20_000, countdownMs = 6_000, trustProxy = false, allowedOrigins = [], limits = {}, capacity = 190, serverLimit = 240, peerStatusUrl = '', peerWeight = 2, peerCapacity = 63, peerLimit = 93, log = console } = {}) {
+  for (const [name, value] of Object.entries({ capacity, serverLimit, peerCapacity, peerLimit })) {
+    if (!Number.isInteger(value) || value <= 0) throw new RangeError(`${name}은(는) 양의 정수여야 합니다.`);
+  }
+  if (serverLimit < capacity || peerLimit < peerCapacity) throw new RangeError('허가 기준은 여유 기준보다 작을 수 없습니다.');
   if (typeof peerWeight !== 'number' || !Number.isFinite(peerWeight) || peerWeight < 0) throw new RangeError('이웃 게임 가중치는 0 이상의 수여야 합니다.');
   const limit = { ...DEFAULT_LIMITS, ...limits };
   const origins = new Set(allowedOrigins.map((origin) => String(origin).trim().replace(/\/+$/, '').toLowerCase()).filter(Boolean));
@@ -54,18 +61,49 @@ export function createGameServer({ reconnectGraceMs = 20_000, countdownMs = 6_00
   const connectionsByIp = new Map();
   const joinFailures = new Map();
 
-  // 이웃 게임 접속자 수는 10초마다 한 번만 읽어 둡니다. 못 읽으면 0으로 봅니다.
+  // 이웃 게임 부하는 10초마다 한 번만 읽어 둡니다. 못 읽으면 0으로 봅니다(꺼진 서버는 CPU를 쓰지 않습니다).
   // shortcut: 이웃 조회 실패 시 여유가 실제보다 후하게 나올 수 있음, 운영에서 실패가 잦으면 마지막 값 유지로 바꾼다.
-  const peer = { count: 0, at: -Infinity };
-  async function peerConnections(now) {
-    if (!peerStatusUrl || now - peer.at < 10_000) return peer.count;
+  const peer = { count: 0, at: -Infinity, refreshing: null };
+  function refreshPeer(now) {
+    if (!peerStatusUrl || now - peer.at < 10_000) return peer.refreshing || Promise.resolve();
     peer.at = now;
-    try {
-      const response = await fetch(peerStatusUrl, { signal: AbortSignal.timeout(1_500) });
-      const body = await response.json();
-      peer.count = Number.isFinite(body?.connections) ? body.connections : 0;
-    } catch { peer.count = 0; }
-    return peer.count;
+    peer.refreshing = (async () => {
+      try {
+        const body = await (await fetch(peerStatusUrl, { signal: AbortSignal.timeout(1_500) })).json();
+        const load = body?.load ?? body?.connections;
+        peer.count = Number.isFinite(load) ? load : 0;
+      } catch { peer.count = 0; }
+      peer.refreshing = null;
+    })();
+    return peer.refreshing;
+  }
+  const admitted = []; // 페인트에 허가했지만 아직 페인트 /health에 잡히지 않았을 수 있는 방(접속 수)
+  function peerLoad(now) {
+    while (admitted.length && admitted[0].until <= now) admitted.shift();
+    return peer.count + admitted.reduce((sum, entry) => sum + entry.size, 0);
+  }
+  function ownLoad(now) {
+    let total = 0;
+    for (const room of rooms.values()) {
+      let connected = 0;
+      for (const player of room.players.values()) if (player.socket) connected++;
+      total += room.phase === 'lobby' && now - room.createdAt < ROOM_RESERVE_MS ? Math.max(connected, MAX_PLAYERS) : connected;
+    }
+    return total;
+  }
+  // 새 방 하나(cost)를 열었을 때 기준: 허가선을 넘으면 '가득', 여유선을 넘으면 '혼잡', 아니면 '여유'.
+  function judge(used, cost, peerAfter = 0) {
+    if (used + cost > serverLimit || peerAfter > peerLimit) return 'full';
+    return used + cost > capacity || peerAfter > peerCapacity ? 'busy' : 'free';
+  }
+  function capacityStatus(now) {
+    const peers = peerLoad(now), used = ownLoad(now) + peerWeight * peers;
+    const status = { capacity, limit: serverLimit, available: Math.max(0, Math.floor(serverLimit - used)), state: judge(used, MAX_PLAYERS) };
+    if (peerStatusUrl) {
+      status.peerAvailable = Math.max(0, Math.floor(Math.min(peerWeight ? (serverLimit - used) / peerWeight : Infinity, peerLimit - peers)));
+      status.peerState = judge(used, peerWeight * PEER_ROOM_SIZE, peers + PEER_ROOM_SIZE);
+    }
+    return status;
   }
 
   function reportError(where, cause, room) {
@@ -80,13 +118,20 @@ export function createGameServer({ reconnectGraceMs = 20_000, countdownMs = 6_00
     try {
       const url = new URL(req.url, 'http://localhost');
       if (url.pathname === '/healthz') {
-        const peers = await peerConnections(Date.now());
-        const left = capacity - wss.clients.size - peerWeight * peers;
-        const status = { ok: true, rooms: rooms.size, connections: wss.clients.size, capacity, available: Math.max(0, Math.floor(left)) };
-        // 페인트 한 명은 공유 여유를 peerWeight만큼 쓰고, 페인트 서버 자체 한도도 넘지 않아야 합니다.
-        if (peerStatusUrl) status.peerAvailable = Math.max(0, Math.floor(Math.min(peerWeight ? left / peerWeight : Infinity, peerCapacity - peers)));
+        await refreshPeer(Date.now());
+        const status = { ok: true, rooms: rooms.size, connections: wss.clients.size, ...capacityStatus(Date.now()) };
         res.writeHead(200, { ...SECURITY_HEADERS, 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
         res.end(req.method === 'HEAD' ? undefined : JSON.stringify(status));
+        return;
+      }
+      // 캠프 페인트 서버가 방을 만들기 전에 묻는 내부 주소입니다. 공개 프록시를 거친 요청(X-Forwarded-For 있음)은 받지 않습니다.
+      if (url.pathname === '/admit' && peerStatusUrl) {
+        if (req.headers['x-forwarded-for']) { res.writeHead(403, SECURITY_HEADERS).end(); return; }
+        await refreshPeer(Date.now());
+        const now = Date.now(), { peerState: state } = capacityStatus(now);
+        if (state !== 'full') admitted.push({ size: PEER_ROOM_SIZE, until: now + ADMIT_HOLD_MS });
+        res.writeHead(200, { ...SECURITY_HEADERS, 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+        res.end(JSON.stringify({ ok: state !== 'full', state }));
         return;
       }
       const pathname = decodeURIComponent(url.pathname);
@@ -364,12 +409,15 @@ export function createGameServer({ reconnectGraceMs = 20_000, countdownMs = 6_00
   function createRoom(socket, message, now) {
     if (rooms.size >= limit.maxRooms) { error(socket, '현재 방이 많습니다. 잠시 뒤 다시 시도해 주세요.'); return; }
     if (roomsCreatedBy(socket.clientIp) >= limit.maxRoomsPerIp) { error(socket, '같은 네트워크에서 연 방이 너무 많습니다. 사용하지 않는 방을 닫은 뒤 다시 시도해 주세요.'); return; }
+    // 이 방이 정원까지 차도 서버 허가선을 넘지 않을 때만 엽니다. 이미 열린 방의 입장은 막지 않습니다.
+    refreshPeer(now);
+    if (capacityStatus(now).state === 'full') { send(socket, { type: 'error', code: 'SERVER_FULL', message: '지금 서버에 사람이 많아 새 방을 열 수 없어요. 몇 분 뒤 다시 만들어 주세요. 이미 열린 방에는 입장할 수 있어요.' }); return; }
     const player = makePlayer(message);
     if (!player) { error(socket, '이름을 입력해 주세요.'); return; }
     let code;
     do { code = String(randomInt(100000, 1000000)); } while (rooms.has(code));
     const room = {
-      code, hostId: player.id, phase: 'lobby', players: new Map([[player.id, player]]), creatorIp: socket.clientIp, activeAt: now,
+      code, hostId: player.id, phase: 'lobby', players: new Map([[player.id, player]]), creatorIp: socket.clientIp, activeAt: now, createdAt: now,
       settings: { mapId: 'random', characterMode: 'choice', duration: 60, matchMode: 'elimination', roundRule: 'race', rounds: 3 },
     };
     resetMatch(room);
@@ -674,8 +722,10 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     allowedOrigins: String(process.env.ALLOWED_ORIGINS || '').split(',').filter(Boolean),
     limits,
     capacity: number(process.env.SERVER_CAPACITY),
+    serverLimit: number(process.env.SERVER_LIMIT),
     peerStatusUrl: process.env.PEER_STATUS_URL,
     peerCapacity: number(process.env.PEER_CAPACITY),
+    peerLimit: number(process.env.PEER_LIMIT),
     peerWeight: Number(process.env.PEER_WEIGHT) >= 0 && process.env.PEER_WEIGHT.trim() ? Number(process.env.PEER_WEIGHT) : undefined,
   });
   const port = Number(process.env.PORT || 3000);

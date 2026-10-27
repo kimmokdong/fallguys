@@ -188,6 +188,7 @@ function onMessage(message) {
     latestState = message; stateAt = performance.now(); scene?.updateState(message); renderRaceState();
   } else if (message.type === 'error') {
     toast(message.message);
+    if (message.code === 'SERVER_FULL') updateServerCapacity();
     if (room?.phase === 'lobby') renderRoom(room);
     clearTimeout(requestTimer); $('#entry-submit').disabled = false;
     if (reconnectPending) {
@@ -314,19 +315,22 @@ $('#color-picker').addEventListener('click', (event) => { const button = event.t
 $('#character-grid').addEventListener('click', (event) => { const button = event.target.closest('[data-character]'); if (button && !button.disabled) { profile.character = button.dataset.character; renderCharacters(); updateProfile(); if (room) send({ type: 'customize', character: profile.character }); } });
 $('#character-done').addEventListener('click', () => $('#character-dialog').close());
 
+// 홈 화면 서버 상태입니다. 서버가 캠프 페인트 접속자까지 합산해 단계(여유·혼잡·가득)와 더 들어올 수 있는 인원을 알려 줍니다.
+const SERVER_STATES = { free: '여유', busy: '혼잡', full: '가득' };
 async function updateServerCapacity() {
   if (document.body.dataset.screen !== 'home') return;
-  const indicator = $('#server-capacity');
+  const panel = $('#server-status');
   try {
     const response = await fetch('/healthz', { cache: 'no-store' });
     if (!response.ok) throw new Error('서버 상태 조회 실패');
-    const { available } = await response.json();
-    if (!Number.isInteger(available) || available < 0) throw new Error('잘못된 여유 인원');
-    indicator.innerHTML = available === 0 ? '지금은 자리가 없어요' : `지금 여유 약 <b>${available}</b>명`;
-    indicator.classList.toggle('capacity-low', available < 15);
-    indicator.hidden = false;
+    const { available, state } = await response.json();
+    if (!Number.isInteger(available) || available < 0 || !SERVER_STATES[state]) throw new Error('잘못된 서버 상태');
+    panel.dataset.state = state;
+    $('#server-state').textContent = SERVER_STATES[state];
+    $('#server-message').innerHTML = state === 'full' ? '새 방은 몇 분 뒤에 만들어 주세요' : `지금 약 <b>${available}</b>명 더 들어올 수 있어요`;
+    panel.hidden = false;
   } catch {
-    indicator.hidden = true;
+    panel.hidden = true;
   }
 }
 
