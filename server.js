@@ -5,9 +5,9 @@ import { fileURLToPath } from 'node:url';
 import { randomBytes, randomInt, randomUUID } from 'node:crypto';
 import { WebSocketServer, WebSocket } from 'ws';
 import { MAPS, createCourse, createRacer, stepPlayers } from './public/world.js';
-import { CHARACTERS, COLORS } from './public/catalog.js';
-import { roundResults, hasNextRound, startingSlots, eliminationQuota } from './public/match.js';
-import { addRoundScores } from './public/results.js';
+import { CHARACTERS, COLORS, TEAMS } from './public/catalog.js';
+import { roundResults, hasNextRound, startingSlots, eliminationQuota, assignTeams, smallestTeam } from './public/match.js';
+import { addRoundScores, seriesTeamStandings, eliminationTeamStandings } from './public/results.js';
 import { StateEncoder } from './public/network.js';
 import { serveAsset, SECURITY_HEADERS } from './http-assets.js';
 
@@ -206,7 +206,7 @@ export function createGameServer({ reconnectGraceMs = 20_000, countdownMs = 6_00
   }
   function publicPlayer(player) {
     return {
-      id: player.id, netId: player.netId, name: player.name, character: player.character, color: player.color,
+      id: player.id, netId: player.netId, name: player.name, character: player.character, color: player.color, team: player.team,
       connected: Boolean(player.socket), finished: player.racer?.finished || false,
       eliminated: Boolean(player.eliminated), participating: Boolean(player.racer),
       fallCount: player.racer?.fallCount || 0, ready: Boolean(player.ready), choosing: Boolean(player.choosing),
@@ -219,6 +219,7 @@ export function createGameServer({ reconnectGraceMs = 20_000, countdownMs = 6_00
       startsAt: room.startsAt, endsAt: room.endsAt, resultsAt: room.resultsAt, results: room.results,
       round: room.round, scores: room.scores, rule: room.rule, quota: room.quota, isFinal: room.isFinal,
       matchOver: room.matchOver, winnerId: room.winnerId, tieBreak: room.tieBreak, standings: room.standings,
+      teamStandings: !room.settings.teams ? [] : room.settings.matchMode === 'series' ? seriesTeamStandings(room.scores) : eliminationTeamStandings([...room.players.values()], [...room.eliminationHistory, ...room.standings], room.winnerId, room.round),
     };
   }
   function announce(room) {
@@ -287,6 +288,8 @@ export function createGameServer({ reconnectGraceMs = 20_000, countdownMs = 6_00
     else if (player.racer && (room.phase === 'countdown' || room.phase === 'playing')) {
       room.results.push({ ...publicPlayer(player), connected: false, rank: null, time: null, status: 'dnf' });
     }
+    // 통과 후 다음 판 사이에 떠난 선수도 그 팀의 진출 기록에 남깁니다.
+    if (room.settings.teams && room.settings.matchMode === 'elimination' && room.phase === 'results' && !room.matchOver && result?.qualified) room.eliminationHistory.push({ ...result, qualified: false, eliminationRound: room.round });
     room.players.delete(player.id);
     if (player.socket) { player.socket.player = null; player.socket.room = null; }
     if (!room.players.size) { rooms.delete(room.code); clearTimeout(room.announceTimer); return; }
@@ -315,7 +318,7 @@ export function createGameServer({ reconnectGraceMs = 20_000, countdownMs = 6_00
       id: randomUUID(), netId: 0, token: randomBytes(24).toString('hex'), name,
       character: randomCharacter ? CHARACTERS[Math.floor(Math.random() * CHARACTERS.length)].id : (validCharacter(message.character) ? message.character : CHARACTERS[0].id),
       color: validColor(message.color) ? message.color : COLORS[0].id,
-      socket: null, input: { ...EMPTY_INPUT }, racer: null, ready: false,
+      socket: null, input: { ...EMPTY_INPUT }, racer: null, ready: false, team: null,
     };
   }
   function assignCharacters(room) {
@@ -362,16 +365,20 @@ export function createGameServer({ reconnectGraceMs = 20_000, countdownMs = 6_00
     room.rule = knockout ? (room.tieBreak ? 'race' : room.isFinal ? (Math.random() < .5 ? 'race' : 'survival') : room.round % 2 === 0 ? 'survival' : 'race') : room.settings.matchMode === 'series' ? 'race' : room.settings.roundRule;
     let maps = MAPS.filter((m) => m.rules.includes(room.rule) && (!room.isFinal || m.final));
     const selected = MAPS.find((m) => m.id === room.settings.mapId);
-    if (selected && (!knockout || room.round === 1)) {
+    if (selected && (room.settings.matchMode === 'single' || room.round === 1)) {
       room.rule = selected.rules.includes(room.rule) ? room.rule : selected.rules[0];
       maps = [selected];
     }
+    if (room.isFinal && maps.some((m) => m.id !== room.lastFinalMapId)) maps = maps.filter((m) => m.id !== room.lastFinalMapId);
     const unplayed = maps.filter((m) => !room.playedMaps.includes(m.id)), pool = unplayed.length ? unplayed : maps;
     room.mapId = pool[Math.floor(Math.random() * pool.length)].id;
+    if (room.isFinal) room.lastFinalMapId = room.mapId;
     room.playedMaps.push(room.mapId); room.course = createCourse(room.mapId, room.rule);
     room.quota = knockout ? (room.isFinal ? 1 : eliminationQuota(participants.length, room.round)) : participants.length;
     const slots = startingSlots(participants, { mode: room.settings.matchMode, rule: room.rule, round: room.round, scores: room.scores, results: room.results });
     room.phase = 'countdown'; room.startsAt = now + countdownMs; room.endsAt = room.startsAt + room.settings.duration * 1000; room.resultsAt = null; room.results = [];
+    // 이미 전송하는 라운드 시작 시각을 신호 순서의 공통 시드로 사용합니다.
+    room.course.seed = room.startsAt >>> 0;
     room.resultsSignature = ''; room.resultsKey = '[]'; room.activeAt = now;
     room.tieBreak = false;
     if (room.settings.characterMode === 'random' && (!knockout || room.round === 1)) assignCharacters(room);
@@ -417,8 +424,8 @@ export function createGameServer({ reconnectGraceMs = 20_000, countdownMs = 6_00
     let code;
     do { code = String(randomInt(100000, 1000000)); } while (rooms.has(code));
     const room = {
-      code, hostId: player.id, phase: 'lobby', players: new Map([[player.id, player]]), creatorIp: socket.clientIp, activeAt: now, createdAt: now,
-      settings: { mapId: 'random', characterMode: 'choice', duration: 60, matchMode: 'elimination', roundRule: 'race', rounds: 3 },
+      code, hostId: player.id, phase: 'lobby', lastFinalMapId: null, players: new Map([[player.id, player]]), creatorIp: socket.clientIp, activeAt: now, createdAt: now,
+      settings: { mapId: 'random', characterMode: 'choice', duration: 60, matchMode: 'elimination', roundRule: 'race', rounds: 3, teams: 0 },
     };
     resetMatch(room);
     rooms.set(code, room);
@@ -459,6 +466,7 @@ export function createGameServer({ reconnectGraceMs = 20_000, countdownMs = 6_00
       if (free.length) player.character = free[Math.floor(Math.random() * free.length)].id;
     }
     player.netId = Array.from({ length: MAX_PLAYERS }, (_, i) => i).find((i) => ![...room.players.values()].some((p) => p.netId === i));
+    if (room.settings.teams) player.team = smallestTeam([...room.players.values()], room.settings.teams);
     room.players.set(player.id, player);
     attach(socket, room, player);
   }
@@ -527,10 +535,14 @@ export function createGameServer({ reconnectGraceMs = 20_000, countdownMs = 6_00
       if (message.matchMode !== undefined && !['single', 'series', 'elimination'].includes(message.matchMode)) { error(socket, '경기 모드가 올바르지 않습니다.'); return; }
       if (message.rounds !== undefined && ![3, 5, 7].includes(message.rounds)) { error(socket, '점수전은 3판, 5판, 7판 중 선택해 주세요.'); return; }
       if (message.roundRule !== undefined && !['race', 'survival'].includes(message.roundRule)) { error(socket, '라운드 종류가 올바르지 않습니다.'); return; }
+      if (message.teams !== undefined && (!Number.isInteger(message.teams) || (message.teams !== 0 && (message.teams < 2 || message.teams > TEAMS.length)))) { error(socket, '팀 수가 올바르지 않습니다.'); return; }
       const mode = message.matchMode ?? room.settings.matchMode;
       const rule = mode === 'series' ? 'race' : message.roundRule ?? room.settings.roundRule;
       const mapId = message.mapId ?? room.settings.mapId;
       if (mode !== 'elimination' && mapId !== 'random' && !MAPS.find((m) => m.id === mapId).rules.includes(rule)) { error(socket, '이 모드에서 사용할 수 없는 맵입니다.'); return; }
+      const teams = mode === 'single' ? 0 : message.teams ?? room.settings.teams;
+      if (teams !== room.settings.teams) assignTeams([...room.players.values()], teams);
+      room.settings.teams = teams;
       room.settings.roundRule = rule;
       if (message.mapId !== undefined) room.settings.mapId = message.mapId;
       if (message.matchMode !== undefined) room.settings.matchMode = message.matchMode;
@@ -543,6 +555,13 @@ export function createGameServer({ reconnectGraceMs = 20_000, countdownMs = 6_00
       if (changed) for (const p of room.players.values()) p.ready = false;
       // 변경이 없으면 방장 화면만 서버에서 확정한 설정으로 다시 그립니다.
       acknowledge(socket, room, changed, throttled);
+    } },
+    shuffleTeams: { host: true, run({ socket, room }) {
+      if (room.phase !== 'lobby') { error(socket, '팀 섞기는 대기실에서만 가능합니다.'); return; }
+      if (!room.settings.teams) { error(socket, '팀전을 먼저 켜 주세요.'); return; }
+      assignTeams([...room.players.values()], room.settings.teams);
+      for (const p of room.players.values()) p.ready = false;
+      announce(room);
     } },
     start: { host: true, run({ socket, room, now }) {
       if (room.phase !== 'lobby') { error(socket, '게임 설정과 시작은 대기실에서만 가능합니다.'); return; }

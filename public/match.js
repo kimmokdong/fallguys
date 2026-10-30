@@ -1,6 +1,6 @@
 // 생존 동시 탈락은 같은 순위, 제한 시간까지 남은 참가자는 공동 생존입니다.
 export function roundResults(players, { rule = 'race', final = false, quota = players.length, time = 0 } = {}) {
-  const rows = players.map(p => ({ id:p.id, name:p.name, character:p.character, color:p.color, connected:Boolean(p.socket) && !p.withdrawn, time:null, rank:null, status:'dnf', qualified:false, ...(rule==='survival'
+  const rows = players.map(p => ({ id:p.id, name:p.name, character:p.character, color:p.color, team:p.team, connected:Boolean(p.socket) && !p.withdrawn, time:null, rank:null, status:'dnf', qualified:false, ...(rule==='survival'
     ? { status: !p.withdrawn && !p.racer.eliminated ? 'survived' : 'eliminated', time: p.racer.eliminatedAt ?? time }
     : p.racer.finished ? { status:'finished', time:p.racer.finishTime ?? time } : {}) }));
   if (rule === 'race') {
@@ -33,6 +33,21 @@ export function eliminationQuota(count, round) {
 export const hasNextRound = room => room.settings.matchMode==='series' ? room.round<room.settings.rounds : room.settings.matchMode==='elimination' && !room.matchOver;
 export const isSuccessful = row => ['finished','survived','winner'].includes(row.status);
 export const placeLabel = row => row.status==='dnf' ? '미완주' : row.status==='eliminated' && row.rank==null ? '탈락' : `${row.rank}위`;
+
+export function smallestTeam(players, count) {
+  const sizes = Array(count).fill(0);
+  for (const p of players) if (Number.isInteger(p.team) && p.team >= 0 && p.team < count) sizes[p.team]++;
+  return sizes.indexOf(Math.min(...sizes));
+}
+
+export function assignTeams(players, count, random = Math.random) {
+  const shuffled = [...players];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  shuffled.forEach((p, i) => { p.team = count ? i % count : null; });
+}
 
 // 선수 명단 순서는 보존하고 출발 슬롯만 배정합니다. z가 큰 줄이 앞줄입니다.
 export function startingSlots(players, { mode, rule, round, scores = [], results = [] }, random = Math.random) {

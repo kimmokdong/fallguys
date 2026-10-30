@@ -14,7 +14,7 @@ test('12인 탈락전: 1라운드 70% 통과, 탈락한 방장 재접속·관전
   host.send({type:'settings',matchMode:'elimination',mapId:'jelly-garden',duration:60});
   await host.wait(roomWhere(r=>r.settings.duration===60)); await prepareRoom(guests,host,12);
   host.send({type:'start'}); await host.wait(roomWhere(r=>r.phase==='playing'));
-  const room=app.rooms.get(welcome.code); assert.equal(room.quota,9);
+  const room=app.rooms.get(welcome.code); assert.equal(room.quota,9); assert.equal(room.mapId,'jelly-garden');
   guests.slice(0,9).forEach((p,i)=>Object.assign(room.players.get(p.id).racer,{finished:true,finishTime:10+i}));
   const r1=(await host.wait(roomWhere(r=>r.phase==='results'&&r.round===1))).room;
   assert.equal(r1.matchOver,false); assert.equal(r1.results.filter(r=>r.qualified).length,9); assert.equal(r1.players.find(p=>p.id===welcome.id).eliminated,true);
@@ -22,7 +22,7 @@ test('12인 탈락전: 1라운드 70% 통과, 탈락한 방장 재접속·관전
   await restored.wait(ofType('welcome')); const rejoined=(await restored.wait(roomWhere(r=>r.phase==='results'))).room;
   assert.equal(rejoined.players.find(p=>p.id===welcome.id).eliminated,true);
   restored.send({type:'next'}); const r2=(await restored.wait(roomWhere(r=>r.phase==='playing'&&r.round===2))).room;
-  assert.equal(r2.rule,'survival'); assert.equal(room.players.get(welcome.id).racer,null);
+  assert.equal(r2.rule,'survival'); assert.notEqual(r2.mapId,'jelly-garden'); assert.equal(room.players.get(welcome.id).racer,null);
   restored.send({type:'input',z:1,jump:true}); await barrier(restored); assert.equal(room.players.get(welcome.id).input.z,0);
   room.roundPlayers.slice(3).forEach(p=>Object.assign(p.racer,{eliminated:true,eliminatedAt:10}));
   const r2end=(await restored.wait(roomWhere(r=>r.phase==='results'&&r.round===2))).room;
@@ -49,6 +49,40 @@ test('생존 결승 시간 동률은 레이스 재결승, 전원 미완주는 �
   host.send({type:'next'}); await host.wait(roomWhere(r=>r.phase==='playing'&&r.round===2)); assert.equal(room.rule,'race');
   room.endsAt=Date.now()-1;
   const none=(await host.wait(roomWhere(r=>r.phase==='results'&&r.round===2))).room; assert.equal(none.winnerId,null); assert.equal(none.matchOver,true);
+});
+
+test('같은 방의 다음 경기는 직전 결승 맵을 피하고 단일 후보는 다시 사용할 수 있다', async t => {
+  t.mock.method(Math, 'random', () => 0);
+  const app = await setup(t, { limits: { actionBurst: 100 } }), host = await client(app.url);
+  host.send({ type: 'create', name: '결승 맵 순환' });
+  const welcome = await host.wait(ofType('welcome'));
+  const room = app.rooms.get(welcome.code);
+  const firstFinal = MAPS.find(m => m.final && m.rules.includes('race')).id;
+  let previousFinal = null;
+  for (let match = 0; match < 3; match++) {
+    host.messages.length = 0;
+    if (match === 2) {
+      host.send({ type: 'settings', mapId: previousFinal });
+      await host.wait(roomWhere(r => r.settings.mapId === previousFinal));
+    }
+    host.send({ type: 'start' });
+    await host.wait(roomWhere(r => r.phase === 'playing' && r.round === 1));
+    assert.equal(room.isFinal, true);
+    assert.equal(room.rule, 'race');
+    if (match === 0) assert.equal(room.mapId, firstFinal);
+    if (match === 1) assert.notEqual(room.mapId, previousFinal, '이전 경기의 결승 맵은 후보에서 제외한다');
+    if (match === 2) assert.equal(room.mapId, previousFinal, '후보가 하나라면 직전 결승 맵도 허용한다');
+    assert.equal(room.lastFinalMapId, room.mapId, '결승 시작 시 기록한다');
+    assert.deepEqual(room.playedMaps, [room.mapId]);
+    previousFinal = room.mapId;
+    room.endsAt = Date.now() - 1;
+    await host.wait(roomWhere(r => r.phase === 'results'));
+    host.messages.length = 0;
+    host.send({ type: 'lobby' });
+    await host.wait(roomWhere(r => r.phase === 'lobby' && r.round === 0));
+    assert.deepEqual(room.playedMaps, []);
+    assert.equal(room.lastFinalMapId, previousFinal, '경기 초기화 뒤에도 방의 직전 결승 기록은 유지한다');
+  }
 });
 
 test('30명 방, 권한, 옵션, 재접속, 서버 경기 종료와 방장 이전', async (t) => {
@@ -247,7 +281,7 @@ test('3판 누적 점수전: 라운드 전환 권한, 맵 중복 방지, 점수 
   const welcome = await host.wait(ofType('welcome'));
   const guest = await client(app.url); guest.send({ type: 'join', code: welcome.code, name: '친구' });
   const joined = await guest.wait(ofType('welcome'));
-  host.send({ type: 'settings', matchMode: 'series', rounds: 3 });
+  host.send({ type: 'settings', matchMode: 'series', rounds: 3, mapId: 'jelly-garden' });
   await host.wait(roomWhere((r) => r.settings.matchMode === 'series'));
   host.send({ type: 'settings', rounds: 4 });
   assert.match((await host.wait(ofType('error'))).message, /3판/);
@@ -257,6 +291,9 @@ test('3판 누적 점수전: 라운드 전환 권한, 맵 중복 방지, 점수 
   for (let round = 1; round <= 3; round++) {
     await host.wait(roomWhere((r) => r.phase === 'playing' && r.round === round));
     const active = app.rooms.get(welcome.code); maps.add(active.mapId);
+    if (round === 1) assert.equal(active.mapId, 'jelly-garden');
+    else assert.notEqual(active.mapId, 'jelly-garden', '선택 맵은 첫 판만 사용한다');
+    assert.equal(active.course.seed, active.startsAt >>> 0);
     assert.equal(active.endsAt - active.startsAt, 60_000, '누적 점수전의 매 라운드도 1분이다.');
     const finisher = active.players.get(round === 1 ? welcome.id : joined.id);
     Object.assign(finisher.racer, { ...active.course.finish, checkpoint:active.course.checkpoints.length-1, vy: 0 });

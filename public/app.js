@@ -1,5 +1,5 @@
 import { MAPS, createCourse, availableMaps, SIGNALS, signalState } from './world.js';
-import { CHARACTERS, COLORS, GIMMICKS } from './catalog.js';
+import { CHARACTERS, COLORS, GIMMICKS, TEAMS } from './catalog.js';
 import { GameScene } from './scene.js';
 import { resultOrder, revealedCount, roundPoints } from './results.js';
 import { hasNextRound, isSuccessful, placeLabel } from './match.js';
@@ -76,7 +76,15 @@ function mapProjection(course) {
 }
 function mapArt(map, index, course = createCourse(map.id)) {
   const project=mapProjection(course),scale=project({x:0,z:0}).scale;
-  const tiles=course.platforms.map(p=>{ const n=project(p); return '<rect x="'+(-p.w*scale/2)+'" y="'+(-p.d*scale/2)+'" width="'+p.w*scale+'" height="'+p.d*scale+'" rx="1" transform="translate('+n.x+' '+n.y+') rotate('+(-(p.rotation||0)*180/Math.PI)+')" fill="'+(p.fake?map.colors.floor:['collapse','disappear','sink'].includes(p.type)?'#c5a15a':p.type==='boost'?'#d9a13c':p.type==='mud'?'#5a3f2b':map.colors.floor)+'" stroke="#344839" stroke-width=".7"/>'; }).join('');
+  const tiles=course.platforms.map(p=>{
+    const n=project(p);
+    if (p.shape === 'ring') {
+      const r=p.w*scale/2,inner=p.innerRadius*scale,cos=Math.cos(p.arc),sin=Math.sin(p.arc);
+      if (!inner) return '<circle cx="'+n.x+'" cy="'+n.y+'" r="'+r+'" fill="'+p.color+'" stroke="#344839" stroke-width=".7"/>';
+      return '<path d="M '+(-r)+' 0 A '+r+' '+r+' 0 0 1 '+(-r*cos)+' '+(-r*sin)+' L '+(-inner*cos)+' '+(-inner*sin)+' A '+inner+' '+inner+' 0 0 0 '+(-inner)+' 0 Z" transform="translate('+n.x+' '+n.y+') rotate('+(-p.rotation*180/Math.PI)+')" fill="'+p.color+'" stroke="#344839" stroke-width=".7"/>';
+    }
+    return '<rect x="'+(-p.w*scale/2)+'" y="'+(-p.d*scale/2)+'" width="'+p.w*scale+'" height="'+p.d*scale+'" rx="1" transform="translate('+n.x+' '+n.y+') rotate('+(-(p.rotation||0)*180/Math.PI)+')" fill="'+(p.fake?map.colors.floor:['collapse','disappear','sink'].includes(p.type)?'#c5a15a':p.type==='boost'?'#d9a13c':p.type==='mud'?'#5a3f2b':map.colors.floor)+'" stroke="#344839" stroke-width=".7"/>';
+  }).join('');
   const flags=course.checkpoints.map((p,i)=>{const n=project(p);return '<circle cx="'+n.x+'" cy="'+n.y+'" r="6" fill="#ead9a4"/><text x="'+n.x+'" y="'+(n.y+3)+'" text-anchor="middle" fill="#283f31" font-size="8">'+(i+1)+'</text>';}).join('');
   const f=course.finish?project(course.finish):null;
   const start=project({x:0,z:6});
@@ -99,6 +107,7 @@ function mapGimmicks(map) {
     for (const o of course.obstacles) keys.add(o.type);
     if (course.flood) keys.add('flood');
     if (course.sliding) keys.add('snow');
+    if (course.id === 'sumo-ring') keys.add('sumo');
   }
   return Object.keys(GIMMICKS).filter((key) => keys.has(key));
 }
@@ -360,6 +369,7 @@ function playerStatus(player) {
 }
 let managedPlayerId = null;
 $('#open-settings').addEventListener('click', () => $('#settings-dialog').showModal());
+$('#shuffle-teams').addEventListener('click', () => send({ type: 'shuffleTeams' }));
 $('#player-grid').addEventListener('click', event => {
   if (event.target.closest('#empty-invite')) { $('#copy-invite').click(); return; }
   const button = event.target.closest('[data-player]');
@@ -397,6 +407,12 @@ function renderRoom(previous) {
     $('#map-select').value = room.settings.mapId;
     $('#character-mode').value = room.settings.characterMode;
     $('#match-mode').value = room.settings.matchMode;
+    $('#teams-select').value = room.settings.teams || 0;
+    $('#teams-settings').hidden = room.settings.matchMode === 'single';
+    $('#shuffle-teams').hidden = !host || !room.settings.teams;
+    $('#self-team').hidden = !room.settings.teams;
+    $('#self-team').textContent = TEAMS[me?.team]?.name || '';
+    $('#self-team').style.setProperty('--team-color', TEAMS[me?.team]?.hex || 'transparent');
     $('#round-rule').value=room.settings.roundRule; $('#rule-settings').hidden=room.settings.matchMode!=='single';
     $('#map-select-label').textContent=room.settings.matchMode==='elimination'?'첫 라운드 맵':'플레이할 맵';
     $('#mode-help').textContent=room.settings.matchMode==='elimination'?'통과 인원 1라운드 70% · 2라운드 60% · 이후 절반. 5명 이하가 되면 결승! 이후 맵은 자동으로 골라요.':room.settings.matchMode==='series'?'레이스 맵으로 매판 같은 배점이에요.':'레이스는 완주 순위, 생존은 버틴 시간으로 겨뤄요.';
@@ -406,7 +422,7 @@ function renderRoom(previous) {
     const map = MAPS.find(m => m.id === room.settings.mapId);
     $('#selected-map-preview').textContent = map ? map.description : '시작할 때 코스를 골라요.';
     $('#course-name').textContent = map?.name || '랜덤 맵';
-    $('#course-meta').textContent = (room.settings.matchMode === 'series' ? room.settings.rounds + '판 점수전' : room.settings.matchMode==='elimination'?'탈락전':room.settings.roundRule==='survival'?'단판 생존':'단판 레이스') + ' · ' + room.settings.duration / 60 + '분';
+    $('#course-meta').textContent = (room.settings.matchMode === 'series' ? '누적 점수전 · '+room.settings.rounds+'판' : room.settings.matchMode==='elimination'?(room.settings.teams?'탈락팀전':'탈락전'):room.settings.roundRule==='survival'?'단판 생존':'단판 레이스') + (room.settings.teams?' · '+room.settings.teams+'팀':'') + ' · ' + room.settings.duration / 60 + '분';
     const ready = room.players.filter(p => p.connected && !p.choosing && (p.ready || p.id === room.hostId)).length;
     $('#ready-count').textContent = ready + '명 준비';
     $('#ready-toggle').hidden = host;
@@ -419,17 +435,18 @@ function renderRoom(previous) {
     $('#player-grid').innerHTML = room.players.filter(p => p.id !== myId).map(p => {
       const c = CHARACTERS.find(c => c.id === p.character) || CHARACTERS[0];
       const status = playerStatus(p);
-      return '<article class="player-card ' + (!p.connected ? 'disconnected' : '') + '">' + portraitImage(p.character, p.color, 'class="player-portrait" alt="' + escapeHTML(c.name) + '"') + '<strong class="player-name" title="' + escapeHTML(p.name) + '">' + escapeHTML(p.name) + (p.id === room.hostId ? '<small>방장</small>' : '') + '</strong><span class="camp-status ' + status.kind + '">' + status.text + '</span>' + (host ? '<button class="manage-player" data-player="' + p.id + '" aria-label="' + escapeHTML(p.name) + ' 참가자 관리">⋮</button>' : '') + '</article>';
+      const team = room.settings.teams && TEAMS[p.team];
+      return '<article class="player-card ' + (!p.connected ? 'disconnected' : '') + '">' + portraitImage(p.character, p.color, 'class="player-portrait" alt="' + escapeHTML(c.name) + '"') + '<strong class="player-name" title="' + escapeHTML(p.name) + '">' + escapeHTML(p.name) + (p.id === room.hostId ? '<small>방장</small>' : '') + '</strong>' + (team?'<span class="team-badge" style="--team-color:'+team.hex+'">'+team.name+'</span>':'') + '<span class="camp-status ' + status.kind + '">' + status.text + '</span>' + (host ? '<button class="manage-player" data-player="' + p.id + '" aria-label="' + escapeHTML(p.name) + ' 참가자 관리">⋮</button>' : '') + '</article>';
     }).join('') + (room.players.length < 30 ? '<button class="player-card empty-player" id="empty-invite">＋ 친구 초대</button>' : '');
     $('#results-overlay').hidden = true;
     queuePortraits();
   } else {
     switchScreen('game');
     if (sceneMode !== 'race' || sceneMap !== room.mapId || previous?.startsAt !== room.startsAt) {
-      scene?.setMode('race', { mapId: room.mapId, playerId: myId, rule:room.rule, reset:true });
+      scene?.setMode('race', { mapId: room.mapId, playerId: myId, rule:room.rule, seed:room.startsAt>>>0, reset:true });
       scene?.setPlayers(room.players);
       sceneMode = 'race'; sceneMap = room.mapId; resetInput();
-      activeCourse = createCourse(room.mapId,room.rule);
+      activeCourse = createCourse(room.mapId,room.rule,room.startsAt>>>0);
       $('#course-map').innerHTML=mapArt(activeCourse,0,activeCourse);
       $('#intro-rule').textContent=activeCourse.tip; $('#controls-rule').textContent=activeCourse.tip;
     }
@@ -444,6 +461,7 @@ function renderRoom(previous) {
     const series = room.settings.matchMode === 'series';
     const myScore = room.scores?.find((row) => row.id === myId)?.score || 0;
     $('#game-map-label').textContent = series ? `ROUND ${room.round} / ${room.settings.rounds} · 누적 ${myScore}점` : room.settings.matchMode==='elimination' ? (room.isFinal?'FINAL':'ROUND '+room.round)+' · '+(room.rule==='survival'?'생존':'레이스') : '단판 · '+(room.rule==='survival'?'생존':'레이스');
+    if (room.settings.teams) $('#game-map-label').textContent = series ? `ROUND ${room.round} / ${room.settings.rounds} · ${TEAMS[me?.team]?.name} ${room.teamStandings.find(t=>t.team===me?.team)?.score || 0}점` : (room.isFinal?'FINAL':'ROUND '+room.round)+' · 탈락팀전 · '+room.settings.teams+'팀';
     $('#results-overlay').hidden = room.phase !== 'results';
     $('#game-screen').classList.toggle('game-results', room.phase === 'results');
     if (room.phase === 'results') renderResults();
@@ -454,7 +472,8 @@ function renderRoom(previous) {
 
 $('#ready-toggle').addEventListener('click', () => send({ type: 'ready', ready: !room.players.find(p => p.id === myId)?.ready }));
 $('#settings-form').addEventListener('change', event => {
-  const settings={mapId:$('#map-select').value,characterMode:$('#character-mode').value,matchMode:$('#match-mode').value,rounds:Number($('#rounds-select').value),roundRule:$('#round-rule').value};
+  const settings={mapId:$('#map-select').value,characterMode:$('#character-mode').value,matchMode:$('#match-mode').value,rounds:Number($('#rounds-select').value),roundRule:$('#round-rule').value,teams:Number($('#teams-select').value)};
+  if(settings.matchMode==='single') settings.teams=0;
   if(settings.matchMode==='series') settings.roundRule='race';
   if(event.target.id==='match-mode' || event.target.id==='round-rule') { mapOptions(settings); settings.mapId=$('#map-select').value; }
   send({type:'settings',...settings});
@@ -492,7 +511,7 @@ function renderRaceState() {
   $('#round-objective').textContent=room.rule==='survival'?(room.isFinal?'마지막 한 명이 우승!':'떨어지면 탈락 · '+alive.length+'명 생존'):knockout?(room.isFinal?'가장 먼저 왕관에 도착하세요!':'통과 '+passed+' / '+room.quota+'명'):'번호 깃발을 지나 결승선까지!';
   $('#round-objective').style.border='';
   if(room.mapId==='signal-square') {
-    const state=signalState(latestState.time),signal=SIGNALS[state.group];
+    const state=signalState(latestState.time,room.startsAt>>>0),signal=SIGNALS[state.group];
     $('#round-objective').textContent=state.remaining<=0 && !state.open?'다음 신호 준비':signal.symbol+' '+signal.name+(state.open?' · 여기서 버텨요!':' 발판으로 이동! '+Math.ceil(state.remaining)+'초');
     $('#round-objective').style.border='3px solid '+signal.color;
   }
@@ -560,6 +579,12 @@ for (const [id, direction] of [['spectator-prev', -1], ['spectator-next', 1]]) {
 function renderResults() {
   resetInput();
   $('#countdown').hidden = true; $('#course-intro').hidden = true; $('#spectator-panel').hidden = true; $('#game-screen').classList.remove('spectating');
+  $('#team-standings').hidden = !room.settings.teams;
+  $('#team-standings').innerHTML = (room.teamStandings || []).map(t => {
+    const team = TEAMS[t.team], series = room.settings.matchMode === 'series';
+    const detail = series ? t.score+'점 · MVP '+t.mvps.map(p=>escapeHTML(p.name)).join(' · ') : room.matchOver ? (t.winner?'우승':t.bestRound+'라운드 탈락') : t.alive+'명 생존 · 최고 '+t.bestRound+'라운드';
+    return '<div class="team-standing" role="listitem" style="--team-color:'+team.hex+'"><strong>'+(series?t.rank+'위 · ':'')+team.name+'</strong><span>'+detail+'</span></div>';
+  }).join('');
   const key = `${room.code}:${room.startsAt}`;
   if (resultsKey !== key) {
     clearInterval(resultsTimer);
@@ -636,6 +661,11 @@ function updateResultReveal() {
       $('#results-help').textContent=nextRound?'탈락한 친구도 끝까지 관전할 수 있어요.':'방장이 대기실로 돌아가면 함께 이동해요.';
     }
     if(room.settings.matchMode==='single' && room.rule==='survival') $('#result-title').textContent=winners.length>1?winners.length+'명, 끝까지 생존!':winner?winner.name+' 님, 생존 성공!':'모두 탈락! 다음에 다시 도전해요.';
+    if(room.settings.teams && !nextRound) {
+      const teams = (room.teamStandings || []).filter(t=>room.settings.matchMode==='series'?t.rank===1:t.winner);
+      $('#result-title').textContent = teams.length ? teams.map(t=>TEAMS[t.team].name).join(' · ')+(teams.length>1?' 공동 우승!':' 우승!') : '이번 경기에는 우승 팀이 없어요';
+      $('#result-subtitle').textContent = '팀별 기록과 개인 순위를 함께 확인해요!';
+    }
 
   }
 }

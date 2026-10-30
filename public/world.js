@@ -19,26 +19,31 @@ const STABLE = Object.freeze({ active: true, remaining: Infinity, warning: false
 const SLIDING = new Set(['bumper', 'log', 'slider']);
 const ROUND_HAZARDS = new Set(['bumper', 'pendulum', 'cushion']);
 
-export function signalState(timeSeconds) {
-  const time=Math.max(0,timeSeconds-6),round=Math.floor(time/5.5),phase=time%5.5;
-  return { group:[0,2,1,3,1,0,3,2][round%8], remaining:Math.max(0,3-phase)+Math.max(0,6-timeSeconds), open:timeSeconds>=6 && phase>=3 && phase<5 };
+export function signalState(timeSeconds, seed = 0) {
+  let time=Math.max(0,timeSeconds-6),cycle=0,wait=3,random=seed>>>0,group=random%4;
+  while(time>=wait+2.5) {
+    time-=wait+2.5;cycle++;wait=Math.max(1,3-cycle*.25);
+    random=(Math.imul(random,1664525)+1013904223)>>>0;
+    group=(group+1+random%3)%4;
+  }
+  return { group, remaining:Math.max(0,wait-time)+Math.max(0,6-timeSeconds), open:timeSeconds>=6 && time>=wait && time<wait+2 };
 }
 
-export function platformTiming(platform, timeSeconds, collapsed = {}) {
+export function platformTiming(platform, timeSeconds, collapsed = {}, seed = 0) {
   if(platform.type==='signal') {
-    const signal=signalState(timeSeconds),safe=platform.signalGroup===signal.group;
+    const signal=signalState(timeSeconds,seed),safe=platform.signalGroup===signal.group;
     return {active:safe || !signal.open,remaining:signal.remaining,warning:!safe && timeSeconds>=6 && signal.remaining>0 && signal.remaining<=1};
   }
   if (platform.type === 'collapse') {
     const touched = collapsed[platform.id];
     if (touched === undefined) return STABLE;
-    const elapsed = timeSeconds - touched, delay = platform.delay || 1;
+    const elapsed = timeSeconds - touched, delay = platform.delay ?? 1;
     const active = elapsed < delay || (platform.recover > 0 && elapsed >= delay + platform.recover);
     return { active, remaining: Math.max(0, delay - elapsed), warning: active && elapsed < delay };
   }
   if (platform.type === 'sink') {
     const remaining = platform.sinkAt - timeSeconds;
-    return { active: remaining > 0, remaining, warning: remaining > 0 && remaining <= 2 };
+    return { active: remaining > 0, remaining, warning: remaining > 0 && remaining <= (platform.warningDuration ?? 2) };
   }
   if (platform.type !== 'disappear') return STABLE;
   const period = platform.period, warmup = platform.warmup || 0;
@@ -57,8 +62,8 @@ export function platformTiming(platform, timeSeconds, collapsed = {}) {
   return { active, remaining, warning: active && remaining <= 1 };
 }
 
-export function platformActive(platform, timeSeconds, collapsed) {
-  return platformTiming(platform, timeSeconds, collapsed).active;
+export function platformActive(platform, timeSeconds, collapsed, seed = 0) {
+  return platformTiming(platform, timeSeconds, collapsed, seed).active;
 }
 
 export function floodLevel(course, t) {
@@ -158,13 +163,23 @@ export function supportAt(course, x, z, timeSeconds, ceiling = Infinity) {
     const p = platformPose(platform, timeSeconds, course.collapsed, course), rotation = p.rotation || 0;
     const cos = rotation ? Math.cos(rotation) : 1, sin = rotation ? Math.sin(rotation) : 0;
     const dx = x - p.x, dz = z - p.z, lx = dx * cos - dz * sin, lz = dx * sin + dz * cos;
-    const inside = p.type === 'rotating' ? Math.hypot(lx / (p.w / 2 + margin), lz / (p.d / 2 + margin)) < 1 : Math.abs(lx) < p.w / 2 + margin && Math.abs(lz) < p.d / 2 + margin;
+    const inside = p.shape === 'ring'
+      ? Math.hypot(lx, lz) >= Math.max(0, p.innerRadius - margin) && Math.hypot(lx, lz) < p.w / 2 + margin && ((Math.atan2(lz, lx) + Math.PI * 2) % (Math.PI * 2)) <= p.arc + 1e-9
+      : p.type === 'rotating' ? Math.hypot(lx / (p.w / 2 + margin), lz / (p.d / 2 + margin)) < 1 : Math.abs(lx) < p.w / 2 + margin && Math.abs(lz) < p.d / 2 + margin;
     if (!inside) continue;
     const y = p.y + (p.rise ? clamp((p.type==='seesaw'?lx:lz) / p.run, -.5, .5) * p.rise : 0);
     // 같은 높이면 나중에 만든 발판(깃발 받침 등)을 우선합니다.
-    if (y <= ceiling && (!best || y >= bestY) && platformActive(p, timeSeconds, course.collapsed)) { best = p; bestY = y; }
+    if (y <= ceiling && (!best || y >= bestY) && platformActive(p, timeSeconds, course.collapsed, course.seed)) { best = p; bestY = y; }
   }
   return best && { ...best, y: bestY };
+}
+
+// 가짜 발판은 착지 점프보다 먼저 없애고, 낮게 스치는 경우도 붕괴시킵니다.
+function triggerFakeTile(player, platform, course, timeSeconds) {
+  if (!platform?.fake || player.y > platform.y + .6) return false;
+  course.collapsed[platform.id] = timeSeconds;
+  player.grounded = false; player.touched = false; player.coyoteTime = 0; player.supportId = null;
+  return true;
 }
 
 export function stepPlayer(player, input = {}, course, timeSeconds, delta, settle = true) {
@@ -194,7 +209,8 @@ export function stepPlayer(player, input = {}, course, timeSeconds, delta, settl
       player.z = platform.z - dx * sin + dz * cos;
     }
   }
-  const floor = supportAt(course, player.x, player.z, timeSeconds, player.y + 0.08);
+  let floor = supportAt(course, player.x, player.z, timeSeconds, player.y + 0.08);
+  if (triggerFakeTile(player, floor, course, timeSeconds)) floor = null;
   player.grounded = !!floor && Math.abs(player.y - floor.y) < P.groundSnap && player.vy === 0;
   player.coyoteTime = player.grounded ? P.coyoteTime : Math.max(0, (player.coyoteTime || 0) - dt);
   player.jumpBuffer = jump ? P.jumpBuffer : Math.max(0, (player.jumpBuffer || 0) - dt);
@@ -271,7 +287,8 @@ export function stepPlayer(player, input = {}, course, timeSeconds, delta, settl
   player.vy -= P.gravity * dt; player.y += player.vy * dt;
 
   // 위에서 내려오는 착지만 인정하므로 계단은 점프해서 올라야 합니다.
-  const landing = supportAt(course, player.x, player.z, timeSeconds, previousY + 0.1);
+  let landing = supportAt(course, player.x, player.z, timeSeconds, previousY + 0.1);
+  if (triggerFakeTile(player, landing, course, timeSeconds)) landing = null;
   if(!wasAirborne && landing && landing.id===floor?.id && (sliding || floor.type==='seesaw')) player.y=Math.min(player.y,landing.y);
   player.grounded = false;
   if (landing && player.vy <= 0 && player.y <= landing.y && previousY >= landing.y - 0.1) {
@@ -299,7 +316,7 @@ function resolveCourseContacts(player, course, timeSeconds, hazards = true) {
   // 높은 발판의 옆면 충돌도 처리해 계단 내부로 뚫고 들어가지 않게 합니다.
   for (const platform of course.platforms) {
     const p = platformPose(platform, timeSeconds, course.collapsed, course);
-    if (p.rise || p.y <= player.y + P.stepTolerance || p.y - P.platformThickness >= player.y + P.bodyHeight || !platformActive(p, timeSeconds, course.collapsed)) continue;
+    if (p.shape === 'ring' || p.rise || p.y <= player.y + P.stepTolerance || p.y - P.platformThickness >= player.y + P.bodyHeight || !platformActive(p, timeSeconds, course.collapsed, course.seed)) continue;
     if (resolveBox(player, p.x, p.z, p.w, p.d, p.rotation || 0, p.type === 'rotating')) moved = true;
   }
   if (course.rule === 'survival' && timeSeconds < P.survivalGrace) return moved;
@@ -337,7 +354,8 @@ function resolveCourseContacts(player, course, timeSeconds, hazards = true) {
 
 function settlePlayer(player, course, timeSeconds) {
   const P = PHYSICS;
-  const floor = supportAt(course, player.x, player.z, timeSeconds, player.y + .12);
+  let floor = supportAt(course, player.x, player.z, timeSeconds, player.y + .12);
+  if (triggerFakeTile(player, floor, course, timeSeconds)) floor = null;
   if (player.grounded && !floor) player.grounded = false;
   // 착지와 동시에 예약 점프로 떠오른 경우도 발판을 밟은 것으로 봅니다.
   const footing = player.grounded || player.touched;

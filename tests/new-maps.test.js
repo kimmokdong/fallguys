@@ -4,8 +4,8 @@ import {MAPS,PHYSICS,createCourse,createRacer,stepPlayers,supportAt,platformPose
 import {StateEncoder,StateDecoder} from '../public/network.js';
 import {layerFaded} from '../public/scene.js';
 
-test('맵 열다섯 가지에서 30명의 입력·몸싸움·낙하를 처리해도 좌표와 시소 각도는 유한하다',()=>{
-  for(const id of ['seesaw-trail','signal-square','rotating-maze','snow-jumps','rocket-road','choco-swamp','tiptoe-bridge','sky-tower','lava-rise','triple-drop','whirlpool-bay','punch-arena','spin-city','cloud-hop','log-lake']) {
+test('맵 열여섯 가지에서 30명의 입력·몸싸움·낙하를 처리해도 좌표와 시소 각도는 유한하다',()=>{
+  for(const id of ['seesaw-trail','signal-square','rotating-maze','snow-jumps','rocket-road','choco-swamp','tiptoe-bridge','sky-tower','lava-rise','triple-drop','whirlpool-bay','punch-arena','spin-city','cloud-hop','log-lake','sumo-ring']) {
     const c=createCourse(id,MAPS.find(m=>m.id===id).rules[0]),players=Array.from({length:30},(_,i)=>createRacer(i,30,c.spawnY||0));
     for(let frame=0;frame<(id==='lava-rise'?1800:360);frame++) {
       stepPlayers(players,players.map((_,i)=>({x:Math.sin(i+frame*.03),z:1,jump:frame%35===i%35})),c,frame/30,1/30);
@@ -46,6 +46,75 @@ test('신호등은 미리 색·모양을 알려 주고 안전한 발판만 남�
   for(let i=0;i<90;i++) stepPlayers([survivor,fallen],[{},{}],c,9.6+i/90,1/90);
   assert.equal(fallen.eliminated,true);assert.equal(survivor.eliminated,false);
   assert.equal(signalState(12).group,2);assert.ok(c.platforms.every(p=>platformTiming(p,11.2).active));
+});
+
+test('신호 대기는 매번 .25초씩 줄어 최소 1초이며 열림·간격·경고 시점은 유지한다',()=>{
+  const seed=12345,c=createCourse('signal-square','survival',seed);
+  assert.equal(c.seed,seed);assert.equal(signalState(0,seed).remaining,9);
+  let start=6;
+  for(let cycle=0;cycle<20;cycle++) {
+    const wait=Math.max(1,3-cycle*.25),state=signalState(start,seed);
+    assert.equal(state.remaining,wait);assert.equal(state.open,false);
+    const unsafe=c.platforms.find(p=>p.signalGroup!==state.group);
+    assert.equal(platformTiming(unsafe,start+wait-.5,{},seed).warning,true);
+    assert.equal(signalState(start+wait,seed).remaining,0);
+    assert.equal(signalState(start+wait,seed).open,true);
+    assert.equal(platformTiming(unsafe,start+wait,{},seed).active,false);
+    assert.equal(supportAt(c,unsafe.x,unsafe.z,start+wait),null);
+    assert.equal(signalState(start+wait+1.99,seed).open,true);
+    assert.equal(signalState(start+wait+2,seed).open,false);
+    assert.equal(platformTiming(unsafe,start+wait+2,{},seed).warning,false);
+    assert.ok(c.platforms.every(p=>platformTiming(p,start+wait+2,{},seed).active));
+    start+=wait+2.5;
+  }
+});
+
+test('신호 순서는 같은 시드에서 같고 시드에 따라 달라지며 바로 같은 그룹을 반복하지 않는다',()=>{
+  const order=seed=>{
+    let start=6,groups=[];
+    for(let cycle=0;cycle<80;cycle++) {
+      const state=signalState(start,seed);
+      assert.ok(state.group>=0 && state.group<4);
+      if(cycle) assert.notEqual(state.group,groups.at(-1));
+      groups.push(state.group);start+=Math.max(1,3-cycle*.25)+2.5;
+    }
+    return groups;
+  };
+  for(const seed of [0,1,12345,0xffffffff]) assert.deepEqual(order(seed),order(seed));
+  assert.notDeepEqual(order(12345),order(54321));
+  assert.deepEqual(signalState(42),signalState(42,0));
+});
+
+test('가짜 발판은 착지 예약 점프·점프 유지·낮은 공중 통과에도 즉시 무너지고 3초 뒤 복구한다',()=>{
+  for(const start of [{y:0,vy:0,grounded:true,coyoteTime:.1},{y:.02,vy:-5,grounded:false},{y:.55,vy:0,grounded:false},{y:.55,vy:2,grounded:false}]) {
+    const c=createCourse('tiptoe-bridge'),tile=c.platforms.find(p=>p.fake);c.obstacles=[];
+    const p=Object.assign(createRacer(),{x:tile.x,z:tile.z,...start});
+    stepPlayers([p],[{jump:true}],c,1,1/90);
+    assert.equal(c.collapsed[tile.id],1);assert.equal(platformTiming(tile,1,c.collapsed).active,false);
+    assert.equal(p.grounded,false);assert.equal(p.jumpCount,0);
+    assert.equal(platformTiming(tile,3.99,c.collapsed).active,false);
+    assert.equal(platformTiming(tile,4,c.collapsed).active,true);
+    for(let i=1;i<=45;i++) stepPlayers([p],[{jump:true}],c,1+i/90,1/90);
+    assert.ok(p.y<tile.y);assert.equal(p.jumpCount,0);
+    const again=Object.assign(createRacer(),{x:tile.x,z:tile.z,y:tile.y});
+    stepPlayers([again],[{jump:true}],c,4,1/90);
+    assert.equal(c.collapsed[tile.id],4);assert.equal(again.jumpCount,0);
+  }
+  const c=createCourse('tiptoe-bridge'),fake=c.platforms.find(p=>p.fake);c.obstacles=[];
+  const high=Object.assign(createRacer(),{x:fake.x,z:fake.z,y:1,vy:2,grounded:false});
+  stepPlayers([high],[{}],c,1,1/90);assert.equal(c.collapsed[fake.id],undefined);
+  const real=c.platforms.find(p=>!p.fake),p=Object.assign(createRacer(),{x:real.x,z:real.z,y:real.y});
+  stepPlayers([p],[{jump:true}],c,1,1/90);assert.equal(p.jumpCount,1);assert.ok(p.vy>0);
+  assert.deepEqual(c.collapsed,{});
+});
+
+test('가짜 발판 이외의 붕괴 발판은 기존 양수 지연과 경고를 유지한다',()=>{
+  for(const map of MAPS) for(const rule of map.rules) for(const tile of createCourse(map.id,rule).platforms.filter(p=>p.type==='collapse'&&!p.fake)) {
+    assert.ok(tile.delay>0);
+    assert.equal(platformTiming(tile,1,{[tile.id]:1}).warning,true);
+    assert.equal(platformTiming(tile,1+tile.delay/2,{[tile.id]:1}).active,true);
+    assert.equal(platformTiming(tile,1+tile.delay+.01,{[tile.id]:1}).active,false);
+  }
 });
 
 test('미로 벽은 경고 뒤 90도 회전하고 높은 벽은 점프로 통과하거나 반동으로 넘어갈 수 없다',()=>{

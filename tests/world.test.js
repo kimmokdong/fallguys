@@ -88,10 +88,10 @@ test('회전 원판은 서 있는 사람을 원을 따라 운반하고 원 밖�
   stepPlayers([airborne],[{}],c,2,1/90);assert.equal(airborne.x,0,'공중에서는 원판에 끌려가지 않음');
 });
 
-test('28개 맵의 지원 규칙, 30명 출발 지점과 서로 다른 동선', () => {
-  assert.equal(MAPS.length,28); assert.equal(new Set(MAPS.map(m=>m.id)).size,28);
+test('29개 맵의 지원 규칙, 30명 출발 지점과 서로 다른 동선', () => {
+  assert.equal(MAPS.length,29); assert.equal(new Set(MAPS.map(m=>m.id)).size,29);
   assert.equal(MAPS.filter(m=>m.rules.includes('race')).length,19);
-  assert.equal(MAPS.filter(m=>m.rules.includes('survival')).length,11);
+  assert.equal(MAPS.filter(m=>m.rules.includes('survival')).length,12);
   const signatures=new Set();
   for(const map of MAPS) for(const rule of map.rules) {
     const course=createCourse(map.id,rule);

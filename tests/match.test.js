@@ -22,7 +22,7 @@ test('생존은 실제 버틴 시간으로 순위를 정하고 시간까지 살�
 });
 test('경기 형식에 맞는 맵만 선택하고 결승 종료 후에는 다음 판을 열지 않는다',()=>{
   assert.equal(availableMaps('single','race').length,19);
-  assert.equal(availableMaps('single','survival').length,11);
+  assert.equal(availableMaps('single','survival').length,12);
   assert.ok(availableMaps('series','survival').every(m=>m.rules.includes('race')));
   assert.equal(hasNextRound({settings:{matchMode:'elimination'},matchOver:true}),false);
   assert.equal(hasNextRound({settings:{matchMode:'elimination'},matchOver:false}),true);

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { createCourse, MAPS, SIGNALS, obstaclePose, platformTiming, platformPose, supportAt, conveyorVelocity, floodLevel } from './world.js';
-import { CHARACTERS, COLORS } from './catalog.js';
+import { CHARACTERS, COLORS, TEAMS } from './catalog.js';
 import { AutoGraphics, GRAPHICS_LEVELS, renderPixelRatio } from './graphics.js';
 
 const WHITE = '#d9d2bc', INK = '#293b32', GOLD = '#c5a15a';
@@ -41,6 +41,8 @@ export class GameScene {
       torus: new THREE.TorusGeometry(1, .1, 4, 16),
     };
     this.geometries.shadow = new THREE.CircleGeometry(.76, 20);
+    this.geometries.teamRing = new THREE.RingGeometry(1.15, 1.55, 32).rotateX(-Math.PI / 2);
+    this.teamMaterials = TEAMS.map(t => new THREE.MeshBasicMaterial({ color: t.hex, side: THREE.DoubleSide, transparent: true, depthWrite: false }));
     const arrow = new THREE.Shape();
     arrow.moveTo(0, -.85); arrow.lineTo(.6, -.15); arrow.lineTo(.22, -.15); arrow.lineTo(.22, .7);
     arrow.lineTo(-.22, .7); arrow.lineTo(-.22, -.15); arrow.lineTo(-.6, -.15); arrow.closePath();
@@ -480,7 +482,7 @@ export class GameScene {
     this.camera.fov = mode === 'race' ? 48 : 40;
     this.camera.updateProjectionMatrix();
     if (mode === 'race') {
-      this.course = createCourse(options.mapId || MAPS[0].id, options.rule);
+      this.course = createCourse(options.mapId || MAPS[0].id, options.rule, options.seed);
       const sky = this.course.colors?.sky || '#bec9fa';
       this.scene.background = new THREE.Color(sky);
       this.scene.fog = new THREE.Fog(sky, 62, 170);
@@ -568,7 +570,7 @@ export class GameScene {
     return sprite;
   }
 
-  playerLabel(text, own) {
+  playerLabel(text, own, team) {
     const canvas = document.createElement('canvas'), context = canvas.getContext('2d');
     const font = '800 46px "Noto Sans KR", "Malgun Gothic", sans-serif';
     context.font = font;
@@ -576,7 +578,7 @@ export class GameScene {
     canvas.height = 86;
     context.fillStyle = own ? '#244e32' : '#23382b';
     context.beginPath(); context.roundRect(3, 3, canvas.width - 6, 80, 22); context.fill();
-    context.strokeStyle = own ? '#ead9a4' : '#7d9275'; context.lineWidth = own ? 6 : 3; context.stroke();
+    context.strokeStyle = team?.hex || (own ? '#ead9a4' : '#7d9275'); context.lineWidth = team ? 7 : own ? 6 : 3; context.stroke();
     context.font = font; context.textAlign = 'center'; context.textBaseline = 'middle';
     context.fillStyle = '#fff4d7'; context.fillText(text, canvas.width / 2, 44, canvas.width - 32);
     const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace;
@@ -620,6 +622,23 @@ export class GameScene {
       group.position.set(platform.x, platform.y ?? 0, platform.z);
       group.rotation.order = "YXZ"; group.rotation.y = platform.rotation || 0;
       if (platform.rise) { group.rotation.x = -Math.atan2(platform.rise, platform.run); group.scale.z = Math.hypot(platform.run,platform.rise)/platform.run; }
+      if (platform.shape === 'ring') {
+        const radius = platform.w / 2, inner = platform.innerRadius, arc = platform.arc, key = 'jelly-' + radius;
+        if (!this.geometries[key]) {
+          const shape = new THREE.Shape();
+          shape.absarc(0, 0, radius, 0, arc, false);
+          if (inner) {
+            shape.lineTo(inner * Math.cos(arc), inner * Math.sin(arc));
+            shape.absarc(0, 0, inner, arc, 0, true);
+          }
+          shape.closePath();
+          this.geometries[key] = new THREE.ExtrudeGeometry(shape, { depth: .68, bevelEnabled: false, curveSegments: 48 }).rotateX(Math.PI / 2);
+        }
+        const jelly = this.mesh(group, key, platform.color, [0, 0, 0], [1, 1, 1], { roughness: .32 });
+        group.userData.jelly = jelly; group.userData.jellyMaterial = jelly.material;
+        this.content.add(group); this.platforms.push({ data: platform, group });
+        return;
+      }
       if (platform.type === 'rotating') {
         this.mesh(group, 'cylinder', CAMP.wood, [0,-.35,0], [platform.w/2,.7,platform.d/2]);
         this.mesh(group, 'cylinder', '#427e74', [0,.015,0], [platform.w/2-.15,.05,platform.d/2-.15]);
@@ -891,25 +910,28 @@ export class GameScene {
         if (object.isInstancedMesh) object.dispose();
         if (object.isSprite) { object.material.map?.dispose(); object.material.dispose(); }
       });
-      this.content.remove(player.group, player.shadow);
+      this.content.remove(player.group, player.shadow, player.ring);
       this.players.delete(id);
     }
     for (const player of this.roster) {
       const existing = this.players.get(player.id);
-      if (existing && existing.character === player.character && existing.color === player.color && existing.name === player.name) continue;
+      if (existing && existing.character === player.character && existing.color === player.color && existing.name === player.name && existing.team === player.team) continue;
       if (existing) {
         existing.group.traverse(object => { if (object.isInstancedMesh) object.dispose(); if (object.isSprite) { object.material.map?.dispose(); object.material.dispose(); } });
-        this.content.remove(existing.group, existing.shadow);
+        this.content.remove(existing.group, existing.shadow, existing.ring);
       }
       const group = this.avatar(player.character, player.color);
-      const name = this.playerLabel(player.name + (player.id === this.playerId ? ' · 나' : ''), player.id === this.playerId);
+      const team = TEAMS[player.team];
+      const name = this.playerLabel(player.name + (player.id === this.playerId ? ' · 나' : ''), player.id === this.playerId, team);
       name.position.y = new THREE.Box3().setFromObject(group).max.y + 0.55;
       group.add(name);
       group.visible = false;
       this.content.add(group);
       const shadow = new THREE.Mesh(this.geometries.shadow, this.contactMaterial);
-      shadow.rotation.x = -Math.PI / 2; shadow.visible = false; this.content.add(shadow);
-      this.players.set(player.id, { ...player, group, shadow, label: name, current: null, target: existing?.target || null });
+      shadow.rotation.x = -Math.PI / 2; shadow.renderOrder = -2; shadow.visible = false; this.content.add(shadow);
+      const ring = new THREE.Mesh(this.geometries.teamRing, this.teamMaterials[player.team] || this.teamMaterials[0]);
+      ring.renderOrder = -1; ring.visible = false; this.content.add(ring);
+      this.players.set(player.id, { ...player, group, shadow, ring, label: name, current: null, target: existing?.target || null });
     }
   }
 
@@ -917,7 +939,7 @@ export class GameScene {
     if (!state) return;
     if(this.course) this.course.collapsed = state.collapsed || {};
     const ids=new Set((state.players||[]).map(p=>p.id));
-    for(const [id,p] of this.players) if(!ids.has(id)) { p.group.visible=false; p.shadow.visible=false; p.target=null; p.current=null; }
+    for(const [id,p] of this.players) if(!ids.has(id)) { p.group.visible=false; p.shadow.visible=false; p.ring.visible=false; p.target=null; p.current=null; }
     this.stateTime = Number.isFinite(state.time) ? state.time : this.stateTime;
     this.stateReceived = performance.now();
     for (const player of state.players || []) {
@@ -1045,8 +1067,10 @@ export class GameScene {
           mesh.instanceMatrix.needsUpdate=true;
         }
         if (['disappear','collapse','sink','signal'].includes(data.type)) {
-          const timing = platformTiming(data, serverTime, this.course.collapsed);
+          const timing = platformTiming(data, serverTime, this.course.collapsed, this.course.seed);
           group.visible = timing.active;
+          if (group.userData.jelly) group.userData.jelly.material = timing.warning && Math.floor(serverTime * 6) % 2
+            ? this.material(CAMP.hazard, { emissive: CAMP.hazard, emissiveIntensity: .5 }) : group.userData.jellyMaterial;
           if (group.userData.warning) {
             group.userData.warning.visible = timing.warning;
             group.userData.warningBar.scale.x = (data.w - 1) * Math.max(0.01, Math.min(1, timing.remaining));
@@ -1059,7 +1083,7 @@ export class GameScene {
       }
       const alpha = 1 - Math.exp(-16 * dt);
       for (const player of this.players.values()) {
-        if (!player.target || !player.current || player.target.eliminated) { player.shadow.visible = false; continue; }
+        if (!player.target || !player.current || player.target.eliminated) { player.shadow.visible = false; player.ring.visible = false; continue; }
         const target = player.target, current = player.current;
         const age=Math.max(0,serverTime-(target.sampleTime??this.stateTime));
         const extrapolate = !target.finished && !target.eliminated && !target.bumpTime ? Math.min(age,.16) : 0;
@@ -1080,6 +1104,9 @@ export class GameScene {
           player.far = far;
         }
         player.shadow.visible = !this.renderer.shadowMap.enabled;
+        const teamGround = Number.isInteger(player.team) ? (target.grounded ? { y: current.y } : supportAt(this.course, current.x, current.z, serverTime, current.y + .1)) : null;
+        player.ring.visible = !!teamGround && current.y - teamGround.y < 10;
+        if (teamGround) player.ring.position.set(current.x, teamGround.y + .045, current.z);
         if (player.shadow.visible) {
           const ground = target.grounded ? { y: current.y } : own ? supportAt(this.course, current.x, current.z, serverTime, current.y + .1) : null;
           player.shadow.visible = !!ground && current.y - ground.y < 10;
@@ -1163,6 +1190,7 @@ export class GameScene {
     this.clearContent();
     for (const geometry of [...Object.values(this.geometries), ...Object.values(this.lowGeometries)]) geometry.dispose();
     this.contactMaterial.dispose();
+    for (const material of this.teamMaterials) material.dispose();
     for (const material of [...this.materials.values(), ...this.fadedMaterials.values()]) material.dispose();
     this.renderer.dispose();
   }

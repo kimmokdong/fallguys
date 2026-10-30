@@ -27,7 +27,8 @@ export const MAPS = [
   map('whirlpool-bay', '소용돌이 만', '🐙', 3, '더 강해진 중심 흡입! 바깥으로 달려 버티고 낮게 도는 막대는 점프로 넘으세요. 선착장은 15초, 바깥 고리는 40초부터 잠겨요.', ['생존', '강한 소용돌이'], palette('#4d7a7d', '#86a0a0', '#c5a15a'), ['survival']),
   map('punch-arena', '펀치 링', '🥊', 3, '사방에서 펀치가 튀어나와요! 모서리 부스터는 탈출용이지만 잘못 타면 밖으로 날아가요. 막판엔 바깥 줄이 잠겨요.', ['생존', '펀치 벽'], palette('#7a7460', '#9d9a8c', '#d0603f'), ['survival']),
   map('seesaw-trail', '시소 숲길', '⚖️', 2, '좌우 무게 차이가 남으면 계속 기울어요! 균형을 잡으면 현재 기울기를 유지해요.', ['좌우 시소', '균형 잡기'], palette('#6e8762', '#94a08b', '#c5a15a')),
-  map('signal-square', '신호등 광장', '🚦', 2, '화면에 표시된 색·모양의 발판으로! 시간이 끝나면 나머지 바닥이 열려요.', ['생존', '색·모양 신호'], palette('#718477', '#97a398', '#c5a15a'), ['survival'], true),
+  map('signal-square', '신호등 광장', '🚦', 2, '매번 바뀌는 색·모양의 발판으로! 이동 시간이 점점 짧아지고 나머지 바닥이 열려요.', ['생존', '색·모양 신호'], palette('#718477', '#97a398', '#c5a15a'), ['survival'], true),
+  map('sumo-ring', '젤리 스모 링', '🤼', 3, '바깥 고리부터 무너져요! 슬라이딩으로 밀어내고 가운데를 지키세요.', ['생존', '슬라이딩 밀어내기', '고리 붕괴'], palette('#ff718b', '#8fbfc9', '#ffcf54'), ['survival'], true),
   map('rotating-maze', '회전 미로', '🧭', 2, '가장자리는 막혀 있어요. 큰 벽이 돌아가며 열리는 틈을 보고 통과하세요.', ['회전 벽', '타이밍 통로'], palette('#637a69', '#909d8e', '#bd9761')),
   map('snow-jumps', '눈꽃 점프대', '❄️', 3, '전진 입력 없이 내리막에서 미끄러져 다섯 번 연속 점프! 좌우로 조향하고 떨어지면 처음부터!', ['자연 가속', '연속 점프'], palette('#638b99', '#9bb0b7', '#c5a15a')),
 ];
@@ -39,10 +40,10 @@ export const SIGNALS = [
 
 export const availableMaps = (mode, rule = 'race') => MAPS.filter(m => mode === 'elimination' || m.rules.includes(mode === 'series' ? 'race' : rule));
 
-export function createCourse(mapId, rule = 'race') {
+export function createCourse(mapId, rule = 'race', seed = 0) {
   const info = MAPS.find(m => m.id === mapId) || MAPS[0];
   rule = info.rules.includes(rule) ? rule : info.rules[0];
-  const c = { ...info, rule, platforms: [], obstacles: [], checkpoints: [], path: [], collapsed: {} };
+  const c = { ...info, rule, seed, platforms: [], obstacles: [], checkpoints: [], path: [], collapsed: {} };
   let platformId = 0;
   const p = (x, z, w, d, y = 0, extra = {}) => { const item = { id: 'p' + platformId++, x, z, w, d, y, type: 'normal', rotation: 0, ...extra }; c.platforms.push(item); return item; };
   const o = (type, x, z, w, d, h, extra = {}) => c.obstacles.push({ id: 'o' + c.obstacles.length, type, x, z, w, d, h, y: 0, speed: 1, phase: 0, range: 0, axis: 'x', ...extra });
@@ -71,7 +72,7 @@ export function createCourse(mapId, rule = 'race') {
   };
   if (rule === 'survival') {
     const collapse = ['leaf-square', 'blink-trail'].includes(info.id);
-    const custom = ['lava-rise', 'triple-drop', 'whirlpool-bay', 'punch-arena'].includes(info.id);
+    const custom = ['lava-rise', 'triple-drop', 'whirlpool-bay', 'punch-arena', 'sumo-ring'].includes(info.id);
     const size = custom ? 0 : collapse || info.id === 'signal-square' ? 6 : 5;
     for (let row = 0; row < size; row++) for (let col = 0; col < size; col++) {
       const edge = Math.min(row, col, size - 1 - row, size - 1 - col);
@@ -131,6 +132,17 @@ export function createCourse(mapId, rule = 'race') {
         puncher(offset, 6 + side * 16, 'z', -side, range, i * 1.3 + j * .87 + .43, 0, 2.6, 28);
       }
       for (const [x, z] of [[-1, -1], [-1, 1], [1, -1], [1, 1]]) booster(x * 7.2, 6 + z * 7.2, -x * Math.SQRT1_2, -z * Math.SQRT1_2, 0, 3.6);
+    }
+    if (info.id === 'sumo-ring') {
+      p(0, 6, 12, 12, 0, { shape: 'ring', innerRadius: 0, arc: Math.PI * 2, color: '#ffcf54' });
+      for (let ring = 1; ring <= 3; ring++) {
+        const innerRadius = 6 + (ring - 1) * 4, radius = innerRadius + (ring === 3 ? 5 : 4), arc = Math.PI / 6;
+        for (let segment = 0; segment < 12; segment++) p(0, 6, radius * 2, radius * 2, 0, {
+          shape: 'ring', innerRadius, arc, rotation: -segment * arc,
+          type: 'sink', sinkAt: 45 - ring * 9, warningDuration: 1.5,
+          color: ['#61dfba', '#aa85f5', '#ff718b'][ring - 1],
+        });
+      }
     }
     c.path = [{ x: 0, z: 6, y: 0 }];
     c.finish = null;
@@ -268,7 +280,7 @@ export function createCourse(mapId, rule = 'race') {
         for(const [i,[z0,path,decoys]] of fields.entries()) {
           const cells=path.split(' ').map(k=>k.split(',').map(Number)), real=new Set([...path.split(' '),...decoys.split(' ')]);
           for(let row=0;row<8;row++) for(let col=0;col<7;col++)
-            p((col-3)*4.8,z0+row*4.8,4.8,4.8,0,real.has(row+','+col)?{}:{type:'collapse',fake:true,delay:.12,recover:3});
+            p((col-3)*4.8,z0+row*4.8,4.8,4.8,0,real.has(row+','+col)?{}:{type:'collapse',fake:true,delay:0,recover:3});
           // 자동 주행 검증용 경로: 진짜 발판 중심만 밟고 섬으로 나갑니다.
           if(i) c.waypoints.push({x:-9.6,z:61,y:0});
           c.waypoints.push(...cells.map(k=>cell(z0,k)),cell(z0,cells.at(-1),5.5),i?{x:0,z:108.8,y:0}:{x:0,z:58.4,y:0});
@@ -300,6 +312,6 @@ export function createCourse(mapId, rule = 'race') {
   const zs=c.platforms.flatMap(t=>[t.z-Math.max(t.w,t.d)/2-(t.range||0),t.z+Math.max(t.w,t.d)/2+(t.range||0)]);
   c.bounds={x:Math.max(...xs)+20,minZ:Math.min(...zs)-20,maxZ:Math.max(...zs)+20};
   c.length=Math.max(...zs); c.finishZ=c.finish?.z ?? null;
-  c.tip=c.sliding?'속도를 유지하며 5번 점프 · 떨어지면 출발점부터 다시!':info.id==='signal-square'?'화면의 색·모양으로 이동 · 나머지 바닥은 열려요!':rule==='survival'?'떨어지면 탈락 · 주황색 경고를 보고 이동해요.':'번호 깃발을 순서대로 · 떨어지면 마지막 깃발에서 다시!';
+  c.tip=info.id==='sumo-ring'?info.description:c.sliding?'속도를 유지하며 5번 점프 · 떨어지면 출발점부터 다시!':info.id==='signal-square'?'무작위 색·모양으로 이동 · 대기 3초→1초 · 나머지 바닥은 열려요!':rule==='survival'?'떨어지면 탈락 · 주황색 경고를 보고 이동해요.':'번호 깃발을 순서대로 · 떨어지면 마지막 깃발에서 다시!';
   return c;
 }
