@@ -342,11 +342,18 @@ Render 배포 후 공개 파일이 로컬 구현과 일치하는 것을 확인�
 
 `/opt/camp-jelly`에서 `compose.yaml`로 게임 서버 1개와 Caddy HTTPS 프록시를 실행합니다. 게임 포트 3000은 외부에 게시하지 않고 80/443만 전체 공개합니다. SSH는 Lightsail 브라우저 접속으로 제한했으며 배포에 사용한 CloudShell IP 허용은 제거했습니다. SSH 암호 접속은 비활성화되어 있습니다. 임시 SSH 인증서는 CloudShell에서만 사용하고 작업 종료 시 삭제합니다. 서버에는 GitHub 토큰이나 AWS 영구 액세스 키를 저장하지 않았습니다.
 
-Caddy 인증서는 Docker 볼륨에 보존되며 서비스는 재부팅 후 자동 시작합니다. 로그 보관 크기를 제한합니다. 48kbps 음원·바이너리 통신·정적 파일 압축과 캐시를 유지합니다. 게임 소스 배포 기준은 `4e49c3c`(2026-10-27, 서버 허용 인원·두 게임 공용 방 만들기 허가·홈 화면 여유/혼잡/가득 표시)입니다. 이전 기준은 `fa03efe`(2026-10-22), `24d7d9b`(2026-10-19), `7cbfbcd`(2026-10-14), `f6127bc`(2026-10-07)입니다. [deploy/DEPLOY_AWS.md](deploy/DEPLOY_AWS.md)의 `deploy/pack.sh`·`deploy/cloudshell-deploy.sh`로 배포했으며, 서버 안에서 새 이미지의 `npm test` 통과를 확인한 뒤 게임 컨테이너만 교체했습니다. 기존 `.env`와 공유 프록시의 `/opt/camp-paint/deploy/Caddyfile.gateway`, `/opt/camp-paint/deploy/proxy.override.yaml`은 수정하지 않았으며 Caddy를 재시작하거나 reload하지 않았습니다. 최신 배포 전 소스는 `backups/pre-4e49c3c-20261027T141207.tar.gz`, 실행 이미지는 `camp-jelly-game:rollback-20261027T141207`로 백업했습니다.
+Caddy 인증서는 Docker 볼륨에 보존되며 서비스는 재부팅 후 자동 시작합니다. 로그 보관 크기를 제한합니다. 48kbps 음원·바이너리 통신·정적 파일 압축과 캐시를 유지합니다. 게임 소스 배포 기준은 `7902d2d`(2026-10-30, 팀 2~6팀·신호등/가짜 발판/시리즈 선택 맵 버그 수정·결승 맵 `젤리 스모 링`·결승 맵 연속 방지)입니다. 이전 기준은 `4e49c3c`(2026-10-27), `fa03efe`(2026-10-22), `24d7d9b`(2026-10-19), `7cbfbcd`(2026-10-14), `f6127bc`(2026-10-07)입니다. [deploy/DEPLOY_AWS.md](deploy/DEPLOY_AWS.md)의 `deploy/pack.sh`·`deploy/cloudshell-deploy.sh`로 배포했으며, 서버 안에서 새 이미지의 `npm test` 통과를 확인한 뒤 게임 컨테이너만 교체했습니다. 기존 `.env`와 공유 프록시의 `/opt/camp-paint/deploy/Caddyfile.gateway`, `/opt/camp-paint/deploy/proxy.override.yaml`은 수정하지 않았으며 Caddy를 재시작하거나 reload하지 않았습니다. 최신 배포 전 소스는 `backups/pre-7902d2d-20261030T124836.tar.gz`, 실행 이미지는 `camp-jelly-game:rollback-20261030T124836`로 백업했습니다.
 
 2026-09-29 배포에서는 캠프 젤리의 HSTS를 추가했으며 다른 사이트 경로를 유지했습니다. 당시 백업 이름은 `backups/pre-b68c817.tar.gz`, `backups/Caddyfile.gateway-pre-b68c817`, `camp-jelly-game:pre-b68c817`입니다.
 
 ### 검증
+
+#### 2026-10-30 배포 검증 (7902d2d, 팀 6팀·버그 3개·결승 맵)
+
+- `7902d2d`를 `deploy/pack.sh`로 묶었습니다(패키지 sha256 `1042fe86…a6741f7e1`). 서버 안 새 game 이미지의 `npm test`가 **125개 통과, 실패 0개**였습니다.
+- 앞선 두 번의 시도는 접속자가 잡혀 `EXIT=8`로 멈췄고(두 번째는 교체 직전 확인에서 걸려 `ROLLED_BACK`, 컨테이너는 바꾸지 않음), 세 번째 시도에서 교체 전후 3000번 포트 연결 수 0을 확인하고 진행했습니다.
+- `camp-jelly-game-1` `(healthy)`, `JELLY_HTTP=200`, `PAINT_HTTP=200`, `DEPLOYED=7902d2d`, `ACCESS_RESTORED`(SSH 규칙 `lightsail-connect`만 유지), `EXIT=0`을 확인했습니다. 공유 프록시는 재시작하지 않았습니다(가동 4주 유지).
+- 공개 `/healthz`가 `{"ok":true,"rooms":0,"connections":0,...,"state":"free","peerState":"free"}`로 응답했고, 운영 `courses.js`에 `sumo-ring`, 첫 화면에 팀 선택(`teams-select`)이 들어 있습니다.
 
 #### 2026-10-27 배포 검증 (4e49c3c, 서버 허용 인원·공용 방 허가)
 
