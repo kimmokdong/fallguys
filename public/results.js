@@ -65,7 +65,7 @@ export function eliminationTeamStandings(players, history, winnerId, round) {
     const team = teams.get(p.team) || { team: p.team, alive: 0, bestRound: 0, winner: false };
     team.alive += Number(alive.has(p.id));
     team.bestRound = Math.max(team.bestRound, p.eliminationRound ?? round);
-    team.winner ||= p.id === winnerId;
+    team.winner ||= p.id === winnerId || p.status === 'winner';
     teams.set(p.team, team);
   }
   return [...teams.values()].sort((a, b) => Number(b.winner) - Number(a.winner) || b.bestRound - a.bestRound || a.team - b.team);

@@ -226,8 +226,15 @@ dialog{max-height:calc(100dvh - 2 * var(--screen-gap))}
 @media(max-width:760px){.map-detail-grid{grid-template-columns:1fr;gap:18px}.map-detail-art{position:static}.map-detail-info h2{font-size:26px}.map-detail-desc{font-size:14px}.filter-divider{display:none}}
 #maps-dialog [hidden]{display:none!important}
 .team-lobby-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.team-lobby-actions .button{min-height:36px;padding:7px 12px;font-size:12px}
+/* 팀 배지가 붙으면 카드가 낮을 때 이름(overflow:hidden)이 먼저 0까지 줄어들어 잘리므로 줄어들지 않게 둡니다. */
+.player-card>.player-name,.player-card>.team-badge,.player-card>.camp-status{flex:none}
 .team-badge{display:inline-flex;align-items:center;gap:5px;max-width:100%;font-size:12px;font-weight:800;color:#283f31}.team-badge::before{content:'';width:12px;height:12px;flex:none;border-radius:50%;background:var(--team-color);border:1px solid #283f3160}
 .self-card #self-team{justify-self:center;grid-column:2}.self-card:has(#self-team:not([hidden])) .lobby-visual{grid-row:1/6}.self-card #lobby-character{grid-column:2}.team-standings{display:flex;gap:8px;overflow:auto;flex:none;margin-bottom:10px;max-height:110px}.team-standing{flex:1 0 145px;min-width:0;border-left:6px solid var(--team-color);border-radius:8px;background:#eee5cf;padding:8px 10px;color:#283f31}.team-standing strong,.team-standing span{display:block;font-size:12px}.team-standing span{margin-top:4px;overflow-wrap:anywhere}
 /* 홈 헤더 타이틀 옆 만든이 표기 */
 .brand-credit{flex:none;align-self:center;margin-left:-8px;padding:4px 10px;border:1px solid #a5b092;border-radius:999px;background:#eee5cf;color:#41644a;font-size:12px;font-weight:700;letter-spacing:-.2px;line-height:1.2;white-space:nowrap}
 @media(max-width:760px){.brand-credit{margin-left:0;padding:3px 8px;font-size:11px}}
+
+/* 팀전에서는 대기실·결과 카드를 팀 색으로 물들여 한눈에 팀을 구분합니다. */
+.player-card.team-card,.self-card.team-card{background:color-mix(in srgb,var(--team-color) 26%,#e5ddc7);border-color:color-mix(in srgb,var(--team-color) 55%,#b3b598);border-top-color:var(--team-color)}
+.result-tile.team-card .result-front{background:color-mix(in srgb,var(--team-color) 30%,#e5ddc7)!important;border-color:var(--team-color)}
+.result-tile.team-card.winner .result-front{border-color:#f0c157}

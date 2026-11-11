@@ -413,6 +413,9 @@ function renderRoom(previous) {
     $('#self-team').hidden = !room.settings.teams;
     $('#self-team').textContent = TEAMS[me?.team]?.name || '';
     $('#self-team').style.setProperty('--team-color', TEAMS[me?.team]?.hex || 'transparent');
+    const selfTeam = room.settings.teams && TEAMS[me?.team];
+    $('.self-card').classList.toggle('team-card', Boolean(selfTeam));
+    $('.self-card').style.setProperty('--team-color', selfTeam?.hex || 'transparent');
     $('#round-rule').value=room.settings.roundRule; $('#rule-settings').hidden=room.settings.matchMode!=='single';
     $('#map-select-label').textContent=room.settings.matchMode==='elimination'?'첫 라운드 맵':'플레이할 맵';
     $('#mode-help').textContent=room.settings.matchMode==='elimination'?'통과 인원 1라운드 70% · 2라운드 60% · 이후 절반. 5명 이하가 되면 결승! 이후 맵은 자동으로 골라요.':room.settings.matchMode==='series'?'레이스 맵으로 매판 같은 배점이에요.':'레이스는 완주 순위, 생존은 버틴 시간으로 겨뤄요.';
@@ -436,7 +439,7 @@ function renderRoom(previous) {
       const c = CHARACTERS.find(c => c.id === p.character) || CHARACTERS[0];
       const status = playerStatus(p);
       const team = room.settings.teams && TEAMS[p.team];
-      return '<article class="player-card ' + (!p.connected ? 'disconnected' : '') + '">' + portraitImage(p.character, p.color, 'class="player-portrait" alt="' + escapeHTML(c.name) + '"') + '<strong class="player-name" title="' + escapeHTML(p.name) + '">' + escapeHTML(p.name) + (p.id === room.hostId ? '<small>방장</small>' : '') + '</strong>' + (team?'<span class="team-badge" style="--team-color:'+team.hex+'">'+team.name+'</span>':'') + '<span class="camp-status ' + status.kind + '">' + status.text + '</span>' + (host ? '<button class="manage-player" data-player="' + p.id + '" aria-label="' + escapeHTML(p.name) + ' 참가자 관리">⋮</button>' : '') + '</article>';
+      return '<article class="player-card ' + (!p.connected ? 'disconnected' : '') + (team ? ' team-card" style="--team-color:' + team.hex : '') + '">' + portraitImage(p.character, p.color, 'class="player-portrait" alt="' + escapeHTML(c.name) + '"') + '<strong class="player-name" title="' + escapeHTML(p.name) + '">' + escapeHTML(p.name) + (p.id === room.hostId ? '<small>방장</small>' : '') + '</strong>' + (team?'<span class="team-badge" style="--team-color:'+team.hex+'">'+team.name+'</span>':'') + '<span class="camp-status ' + status.kind + '">' + status.text + '</span>' + (host ? '<button class="manage-player" data-player="' + p.id + '" aria-label="' + escapeHTML(p.name) + ' 참가자 관리">⋮</button>' : '') + '</article>';
     }).join('') + (room.players.length < 30 ? '<button class="player-card empty-player" id="empty-invite">＋ 친구 초대</button>' : '');
     $('#results-overlay').hidden = true;
     queuePortraits();
@@ -609,9 +612,10 @@ function renderResults() {
       const score = room.scores?.find((row) => row.id === r.id)?.score || 0;
       const points = roundPoints(r, room.results.length);
       const series=room.settings.matchMode==='series', knockout=room.settings.matchMode==='elimination';
-      const value=series?(r.overall?r.score:score)+'점':knockout?(r.id===room.winnerId?'우승':r.qualified?'통과':'탈락'):room.rule==='survival'?(r.status==='survived'?'생존':Number(r.time||0).toFixed(1)+'초'):r.status==='finished'?Number(r.time).toFixed(2)+'초':'미완주';
+      const value=series?(r.overall?r.score:score)+'점':knockout?(r.id===room.winnerId||room.matchOver&&r.qualified?'우승':r.qualified?'통과':'탈락'):room.rule==='survival'?(r.status==='survived'?'생존':Number(r.time||0).toFixed(1)+'초'):r.status==='finished'?Number(r.time).toFixed(2)+'초':'미완주';
       const detail=series?(r.overall?r.completed+'회 완주':'이번 판 +'+points+'점'):knockout?(r.eliminationRound?r.eliminationRound+'라운드 탈락':room.isFinal?'결승':room.round+'라운드'):room.rule==='survival'?(r.status==='survived'?'끝까지 버텼어요':'떨어져서 탈락'):'완주 기록';
-      return `<article class="result-tile ${r.id === myId ? 'me' : ''} ${isSuccessful(r) && r.rank === 1 ? 'winner' : isSuccessful(r) && r.rank === 2 ? 'silver' : isSuccessful(r) && r.rank === 3 ? 'bronze' : ''}" role="listitem" aria-label="결과 공개 대기" data-index="${i}" style="--jelly-color:${color.hex};order:${orderedResults.length - i}"><div class="result-front" aria-hidden="true"><span class="tile-rank">${tied ? '공동 ' : ''}${place}</span>${r.id === myId ? '<span class="tile-me">나</span>' : ''}<div class="result-photo">${photo}</div><div class="tile-caption"><strong>${escapeHTML(r.name)}</strong><b class="result-value">${escapeHTML(value)}</b></div><small class="tile-detail">${escapeHTML(detail)}</small></div><div class="result-back" aria-hidden="true"><span>?</span><small>${tied ? '공동 ' : ''}${place}</small></div></article>`;
+      const team = room.settings.teams && TEAMS[r.team];
+      return `<article class="result-tile ${team ? 'team-card' : ''} ${r.id === myId ? 'me' : ''} ${isSuccessful(r) && r.rank === 1 ? 'winner' : isSuccessful(r) && r.rank === 2 ? 'silver' : isSuccessful(r) && r.rank === 3 ? 'bronze' : ''}" role="listitem" aria-label="결과 공개 대기" data-index="${i}" style="--jelly-color:${color.hex};${team ? `--team-color:${team.hex};` : ''}order:${orderedResults.length - i}"><div class="result-front" aria-hidden="true"><span class="tile-rank">${tied ? '공동 ' : ''}${place}</span>${r.id === myId ? '<span class="tile-me">나</span>' : ''}<div class="result-photo">${photo}</div><div class="tile-caption"><strong>${escapeHTML(r.name)}</strong><b class="result-value">${escapeHTML(value)}</b></div><small class="tile-detail">${escapeHTML(detail)}</small></div><div class="result-back" aria-hidden="true"><span>?</span><small>${tied ? '공동 ' : ''}${place}</small></div></article>`;
     }).join('');
     $('#results-list').scrollTop = 0;
     queuePortraits();

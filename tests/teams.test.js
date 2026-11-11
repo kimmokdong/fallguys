@@ -206,3 +206,42 @@ test('탈락팀전 라운드 사이 퇴장도 팀 최고 진출 기록에 남는
   assert.equal(final.winnerId,champion.id);
   assert.deepEqual(final.teamStandings.find(t=>t.team===team),{team,alive:0,bestRound:1,winner:false});
 });
+
+test('탈락팀전에서 통과자가 모두 한 팀이면 개인 1등을 가리지 않고 그 팀 우승으로 끝난다', async t => {
+  const app=await setup(t),host=await client(app.url);
+  host.send({type:'create',name:'방장'}); const w=await host.wait(ofType('welcome'));
+  const a=await client(app.url),b=await client(app.url);
+  a.send({type:'join',code:w.code,name:'같은팀'}); const wa=await a.wait(ofType('welcome'));
+  b.send({type:'join',code:w.code,name:'다른팀'}); await b.wait(ofType('welcome'));
+  host.send({type:'settings',teams:2,mapId:'jelly-garden'});
+  await host.wait(roomWhere(r=>r.settings.teams===2)); await prepareRoom([a,b],host,3);
+  const room=app.rooms.get(w.code),me=room.players.get(w.id),mate=room.players.get(wa.id);
+  for(const p of room.players.values()) p.team=p===me||p===mate?0:1;
+  host.send({type:'start'}); await host.wait(roomWhere(r=>r.phase==='playing'));
+  // 결승 전 일반 라운드(2명 통과)라고 가정합니다.
+  Object.assign(room,{isFinal:false,quota:2,rule:'race'});
+  Object.assign(me.racer,{finished:true,finishTime:1}); Object.assign(mate.racer,{finished:true,finishTime:2});
+  const final=(await host.wait(roomWhere(r=>r.phase==='results'))).room;
+  assert.equal(final.matchOver,true); assert.equal(final.tieBreak,false); assert.equal(final.winnerId,null);
+  assert.deepEqual(final.teamStandings.filter(t=>t.winner).map(t=>t.team),[0]);
+  assert.deepEqual(final.standings.filter(p=>p.status==='winner').map(p=>p.id).sort(),[w.id,wa.id].sort());
+});
+
+test('탈락팀전 생존 판에서 한 팀만 남으면 시간을 기다리지 않고 그 팀 우승으로 끝난다', async t => {
+  const app=await setup(t),host=await client(app.url);
+  host.send({type:'create',name:'방장'}); const w=await host.wait(ofType('welcome'));
+  const a=await client(app.url),b=await client(app.url);
+  a.send({type:'join',code:w.code,name:'같은팀'}); const wa=await a.wait(ofType('welcome'));
+  b.send({type:'join',code:w.code,name:'다른팀'}); const wb=await b.wait(ofType('welcome'));
+  host.send({type:'settings',teams:2,mapId:'jelly-garden'});
+  await host.wait(roomWhere(r=>r.settings.teams===2)); await prepareRoom([a,b],host,3);
+  const room=app.rooms.get(w.code);
+  for(const p of room.players.values()) p.team=p.id===wb.id?1:0;
+  host.send({type:'start'}); await host.wait(roomWhere(r=>r.phase==='playing'));
+  Object.assign(room,{isFinal:true,quota:1,rule:'survival'});
+  Object.assign(room.players.get(wb.id).racer,{eliminated:true,eliminatedAt:1});
+  const final=(await host.wait(roomWhere(r=>r.phase==='results'))).room;
+  assert.equal(final.matchOver,true); assert.equal(final.tieBreak,false);
+  assert.deepEqual(final.teamStandings.filter(t=>t.winner).map(t=>t.team),[0]);
+  assert.deepEqual(final.standings.filter(p=>p.status==='winner').map(p=>p.id).sort(),[w.id,wa.id].sort());
+});

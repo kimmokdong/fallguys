@@ -341,9 +341,11 @@ export function createGameServer({ reconnectGraceMs = 20_000, countdownMs = 6_00
         result.qualified = !p.eliminated;
         if (p.eliminated) room.eliminationHistory.push({ ...result, eliminationRound: room.round });
       }
-      room.matchOver = qualified.length <= 1;
+      // 팀전에서 통과자가 모두 한 팀이면 개인 1등을 더 가리지 않고 그 팀 우승으로 끝냅니다.
+      const oneTeam = Boolean(room.settings.teams) && qualified.length > 1 && new Set(qualified.map((r) => r.team)).size === 1;
+      room.matchOver = qualified.length <= 1 || oneTeam;
       room.winnerId = qualified.length === 1 ? qualified[0].id : null;
-      room.tieBreak = room.isFinal && qualified.length > 1;
+      room.tieBreak = room.isFinal && qualified.length > 1 && !oneTeam;
       if (room.matchOver) {
         room.standings = [...qualified.map((r) => ({ ...r, status: 'winner', rank: 1 })), ...room.eliminationHistory.slice().sort((a, b) => b.eliminationRound - a.eliminationRound || (a.rank ?? 99) - (b.rank ?? 99))];
         room.standings.forEach((r, i) => {
@@ -676,7 +678,9 @@ export function createGameServer({ reconnectGraceMs = 20_000, countdownMs = 6_00
     const remaining = room.roundPlayers.filter((p) => !p.withdrawn && !p.racer.finished && !p.racer.eliminated);
     const enough = room.settings.matchMode === 'elimination' && room.rule === 'race' && finished >= room.quota;
     const survivalDone = room.rule === 'survival' && remaining.length <= (room.settings.matchMode === 'elimination' ? room.quota : 1) && (room.roundPlayers.length > 1 || remaining.length === 0);
-    if (now >= room.endsAt || !remaining.length || enough || survivalDone) endRound(room);
+    // 탈락팀전 생존 판에서 살아남은 사람이 모두 한 팀이면 바로 끝내고 그 팀을 우승시킵니다.
+    const lastTeam = room.settings.teams && room.settings.matchMode === 'elimination' && room.rule === 'survival' && remaining.length > 0 && new Set(remaining.map((p) => p.team)).size === 1 && new Set(room.roundPlayers.map((p) => p.team)).size > 1;
+    if (now >= room.endsAt || !remaining.length || enough || survivalDone || lastTeam) endRound(room);
     else { if (changed) announce(room); if (sendFrame) broadcastState(room, now); }
   }
   // 한 방에서 예외가 나도 다른 방과 서버는 계속 동작합니다. 경기를 마무리하지 못하면 그 방만 닫습니다.

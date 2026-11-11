@@ -125,9 +125,9 @@ export function createCourse(mapId, rule = 'race', seed = 0) {
         const edge = Math.min(row, col, 5 - row, 5 - col) === 0;
         p((col - 2.5) * 4.8, 6 + (row - 2.5) * 4.8, 4.8, 4.8, 0, edge ? { type: 'sink', sinkAt: 28 + (row + col) % 3 * 3 } : {});
       }
-      // 한 변에 세 줄씩, 가운데 줄은 링 한복판을 지나도록 깊게 튀어나옵니다.
-      for (const [i, side] of [-1, 1].entries()) for (const [j, offset] of [-6, 0, 6].entries()) {
-        const range = offset ? 11 : 15;
+      // 한 변에 다섯 줄씩 4칸 간격으로 깔아 바깥 줄이 잠긴 뒤 남는 4×4 링에는 모서리를 포함해 피난처가 없습니다.
+      for (const [i, side] of [-1, 1].entries()) for (const [j, offset] of [-8, -4, 0, 4, 8].entries()) {
+        const range = offset === 0 ? 15 : Math.abs(offset) === 4 ? 13 : 11;
         puncher(side * 16, 6 + offset, 'x', -side, range, i * 1.3 + j * .87, 0, 2.6, 28);
         puncher(offset, 6 + side * 16, 'z', -side, range, i * 1.3 + j * .87 + .43, 0, 2.6, 28);
       }

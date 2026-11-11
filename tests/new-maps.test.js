@@ -377,3 +377,11 @@ test('슬라이딩은 정면 접촉만 한 번 강타하고 뒤·원거리·보�
   const wallHit=pair();for(let i=0;i<60;i++) stepPlayers(wallHit,[{z:1,dive:i===0},{}],c,5+i/90,1/90);
   assert.ok(wallHit.every(p=>p.z<=1.961),'밀친 뒤에도 벽 충돌');
 });
+
+test('펀치 링은 바깥 줄이 잠긴 뒤 남는 4×4 링 어디에 서 있어도(모서리 포함) 펀치를 맞는다',()=>{
+  const punchers=createCourse('punch-arena').obstacles.filter(o=>o.type==='puncher'),r=PHYSICS.bodyRadius;
+  for(let x=-9.4;x<=9.4;x+=.4) for(let z=-3.4;z<=15.4;z+=.4) {
+    const hit=punchers.some(o=>{for(let t=0;t<o.period;t+=.01){const p=obstaclePose(o,t);if(p.extension>.3&&Math.abs(x-p.x)<o.w/2+r&&Math.abs(z-p.z)<o.d/2+r)return true;}return false;});
+    assert.ok(hit,`안전 지점 (${x.toFixed(1)}, ${z.toFixed(1)})`);
+  }
+});
